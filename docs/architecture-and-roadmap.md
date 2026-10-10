@@ -1,0 +1,52 @@
+# Watt Profile: High-Level Architecture and Roadmap
+
+> **English** · [中文](architecture-and-roadmap_zh.md)
+
+Status: high-level planning baseline, updated 2026-10-10 to reflect the agreed MVP. This document records the system direction, not a claim that any component already exists. The [MVP roadmap](mvp-roadmap.md) defines the release boundary, milestones, and acceptance checks.
+
+## Purpose and boundaries
+
+Watt Profile monitors electricity use at a customer's home for several weeks so an internal designer can assess battery storage and solar PV options. The system has two parts:
+
+- **Data Logger:** a containerized device installed on site. The MVP collects from the electricity meter's P1 port; Modbus follows later. Raspberry Pi 4 with 1 GB RAM is the target, and Raspberry Pi 3B+ compatibility is required for MVP acceptance. Pi 5 is a later hardware target.
+- **Centralized Server:** a publicly reachable, self-managed application with an internal web interface, API, and database, initially deployed in containers on the owner's home server. VPS deployment and report generation are later extensions.
+
+The pilot starts with one Logger and is expected to grow to only a few devices. A monitoring session (deployment) uses one source initially, while the data model retains distinct devices, sites, sessions, measurement points, and sources so later deployments can contain multiple meters. The Logger creates each new site's UUID v4 offline; the server adopts it and associates the address and description. Revisits reuse the Site UUID with a new session. The Site UUID remains independent of the device's Bearer Token; manual server registration grants that device access to the site.
+
+The MVP provides reliable collection and delivery, manual site/device registration, status, basic queries, and CSV export. Charts and AI-generated energy profile reports for internal users follow later. Reports will describe usage patterns, data quality, and items to check. Specific battery or PV sizing will be designed when additional site inputs, such as proposed PV capacity, are defined. No customer login is required initially.
+
+## Architecture and technology choices
+
+| Layer | Centralized Server | Data Logger |
+| --- | --- | --- |
+| Runtime and deployment | Docker Compose on the owner's Linux home server; Caddy provides the public HTTPS entry point. | Raspberry Pi OS Lite 64-bit and an ARM64 container on Pi 4 1 GB and Pi 3B+. One Python application process owns collection, upload, and the local API. |
+| Backend | Python and FastAPI for ingest, registration, queries, exports, and authentication. A separate report worker is added later. | Python and FastAPI for local setup and read tests; `pyserial` handles P1. `pymodbus` belongs to the later Modbus extension. The existing protocol code is a starting point, not a finished Logger service. |
+| Frontend | Backend-served HTML forms, lists, and tables for MVP. React, TypeScript, and Vite remain options for later charts and report review. | Simple HTML and minimal JavaScript served by Python. Node.js does not run on the Pi. |
+| Storage | PostgreSQL holds devices, sites, sessions, authorizations, and snapshots. Common metrics and timestamps are queryable columns; remaining sanitized fields can be JSONB. Accepted snapshots are retained for at least one year. Report storage is added later. | SQLite in a persistent volume holds configuration, snapshots, and upload state. Capacity must support at least four offline weeks. Keep the whole session locally; manually clean up only uploaded records from completed sessions. |
+| AI | Deferred beyond MVP. A future separate worker calls OpenRouter's Responses API with a configurable model and preserves input statistics, model/prompt versions, and reports for review. | No model runtime or model API key. |
+
+This uses the [handover documentation](home-automation-energy-handover.md) for the P1 framing/CRC/OBIS parser and the read-only Modbus TCP driver and profiles. The source project's higher-level database, MQTT, Home Assistant, billing, and WarmteLink-specific behavior are not part of this architecture.
+
+The Logger pushes batches to its configured server URL: HTTPS for public access, with HTTP supported inside an owner-managed WireGuard tunnel. SSH, Ethernet addressing, DHCP, Wi-Fi, and WireGuard are managed outside the project. Onboarding and collection work offline; the application does not configure host networking or require WireGuard. The operator establishes connectivity between a computer and the Pi, then opens the local page by its reachable address. Local setup credentials, server accounts, and device upload credentials have separate scopes. The Logger generates and persists its upload Token; an administrator manually registers it and the Site UUID on the server, which stores the Token hash and checks site authorization.
+
+## Collection, delivery, and reporting
+
+- **P1:** continuously parse complete telegrams and validate their integrity. Every ten seconds, persist the latest new valid telegram from that window, including all sanitized parsed fields, timestamps, and quality metadata. Empty windows remain gaps; old values are not duplicated. Raw serial bytes are not long-term records. On-site staff select serial settings and an installed meter profile, preview fields, and run a read test. Parser rules and OBIS mappings are maintained in the application.
+- **Modbus, later:** poll at a configurable interval, initially approximately ten seconds. Standard Modbus TCP is the first transport, using DDSU666 as the historically validated reference. DTSU666 needs its exact model manual and physical verification. Serial RTU and RTU over TCP remain separate extensions; GPIO/RS485 hardware design is outside this planning round.
+- **Offline delivery:** commit a snapshot and pending state locally before upload. Normally upload every ten seconds; recovery drains bounded batches with one request in flight without blocking collection. The server checks credentials and site authorization, persists batches atomically and idempotently, then confirms them. Only then does the Logger mark records uploaded. Interfaces expose quality, contact, backlog, errors, and storage pressure. At capacity, alert and stop adding records rather than discard unuploaded data. Old records retain their site/session ownership when a Logger moves.
+- **Server analysis, later:** compute coverage, gaps, import/export energy, sampled peaks, and daily load shapes from stored snapshots. Energy totals use cumulative meter readings; ten-second power snapshots can miss short-lived peaks. Add charts, then feed identifier-free statistics to OpenRouter for narrative reports. Preserve the snapshot with each report for checking; an internal user reviews it before PDF export.
+
+The future report worker must not block ingest; its job state can live in PostgreSQL. A message broker or specialized time-series database is not a baseline dependency; judge their need from measured volume and latency. PostgreSQL's [JSONB support](https://www.postgresql.org/docs/current/datatype-json.html) and [native range partitioning](https://www.postgresql.org/docs/current/ddl-partitioning.html) are available storage tools; a partitioning implementation is not a separate MVP requirement. OpenRouter integration and model capability verification belong to the later report milestone.
+
+## Roadmap and validation
+
+The MVP proceeds by dependency: **M1 protocol and contracts → M2 standalone Logger → M3 manually managed server → M4 integrated pilot release**. Acceptance checks and estimates are in the [MVP roadmap](mvp-roadmap.md). Later work adds charts and deterministic analysis, AI reports, Modbus, and provisioning/operations improvements.
+
+Before the pilot is accepted, validate the following with synthetic or sanitized samples and isolated services:
+
+- P1 framing, bounded buffering, CRC rejection, field mapping, timestamps, redaction, ten-second selection, and empty-window handling.
+- Pi 4 1 GB and Pi 3B+ resource use, sustained collection, actual disk writes, and four-week offline capacity. Ten-second storage produces at most 241,920 snapshots over four weeks; actual bytes must be measured.
+- Credential/site authorization, stable UUIDs, changing sites without relabeling old data, restart during collection/upload, prolonged network loss, response loss, replay, and deduplication.
+- Matching query/CSV results. Chart consistency, traceable report figures, model outages, and Modbus device validation are checks for later milestones.
+
+M1 must establish the initial P1 meter profile and precise API/schema contracts before dependent implementation. Snapshot size and storage capacity are measured during MVP verification. Exact future Modbus models, AI model selection, report presentation, and remote configuration/update mechanisms remain later design work.
