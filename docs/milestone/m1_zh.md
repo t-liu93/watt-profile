@@ -2,7 +2,7 @@
 
 > [English — 权威版本](m1.md) · **中文**
 
-状态：2026-10-10 实施中。M1-01–M1-05 已通过离线检查与独立审查；M1-06–M1-08 待实施。人工走查与硬件验证尚未进行。
+状态：2026-10-10 实施中。M1-01–M1-06 已通过离线检查与独立审查；M1-07–M1-08 待实施。人工走查与硬件验证尚未进行。
 
 ## 1. 目标与 Agent 读取方式
 
@@ -345,6 +345,30 @@ M2 在**每条连接**启用 SQLite 外键、WAL、`synchronous=FULL` 和 5 秒 
 
 在一个归属组内选择最旧 pending，按条数和字节限制分批。旧组被阻断不能阻止新授权组上传；跳过不等于删除或确认。永久错误不紧密循环重试。上传不可用时，采集和本地提交独立继续。已结束本地会话状态及串口配置不上传；本版本中心端不宣称掌握会话结束状态。
 
+#### 离线上传样例（M1-06）
+
+在仓库根目录使用已安装的包验证合成文件，无须发送请求。`request.json` 与 `replay.json` 含有相同的不可变记录，但 JSON 排版不同；`confirmation.json` 确认完整 ID 集合，`rejection.json` 演示固定安全错误文本。样例不含凭据或本地配置。
+
+```python
+from pathlib import Path
+from watt_profile.contracts.domain import payload_sha256
+from watt_profile.contracts.upload import (
+    UploadErrorResponse,
+    validate_confirmation_body,
+    validate_upload_body,
+)
+
+examples = Path("examples/ingest")
+batch = validate_upload_body((examples / "request.json").read_bytes())
+replay = validate_upload_body((examples / "replay.json").read_bytes())
+assert [payload_sha256(r) for r in batch.records] == [payload_sha256(r) for r in replay.records]
+confirmation = validate_confirmation_body((examples / "confirmation.json").read_bytes(), batch)
+rejection = UploadErrorResponse.model_validate_json((examples / "rejection.json").read_bytes())
+assert rejection.error.code == "site_not_authorized"
+```
+
+`validate_upload_body(body, content_encoding=None)` 接收实际收到的 UTF-8 字节，在解析 JSON 前检查 4 MiB 上限，拒绝压缩 body 和重复 JSON 键；失败时抛出 `UploadValidationError`，提供固定安全 `response` 与 `status_code`。未来 endpoint 还必须限制输入读取量；这个纯验证器不执行流式 I/O。未知版本对应 `unsupported_schema`（422），条数／记录／body 超限对应 `batch_too_large`（413），其他 schema／隐私错误对应 `invalid_payload`（422）。`validate_confirmation_body(body, batch)` 允许 ID 调序，但要求完整唯一 ID 集合和匹配的版本／设备；失败仅抛出 `InvalidConfirmation("invalid_confirmation")`，不确认本地行。`error_response(code)` 和 `UploadErrorResponse` 强制规定的固定消息及可重试标记；`temporarily_unavailable` 的默认应用状态为 503（C6 也允许 429／其他 5xx）。
+
 ### C7. 串口独占、采样与诊断 probe
 
 `ReadOnlySerial` 只暴露 `read(size: int) -> bytes` 和 `close() -> None`；`SerialFactory` 接收不可变 `SerialConfig`（path、baudrate、bytesize、parity、stopbits、timeout=1）。`Clock` 暴露单调秒、当前 UTC、可中断等待。Linux 实际打开请求 pyserial exclusive，第二 owner 明确失败。应用内串行化 owner 切换；不宣称进程内锁能保护其他应用。
@@ -447,4 +471,4 @@ python3.12 -m venv "$M1_VENV"
 
 八项任务验收全部通过且英中一致后，M1 才完成。分别记录命令、结果、未执行项及重要限制；类型／测试不代表真实数据库原子性或回传通过。
 
-最终 Milestone 验收：**待 M1-06–M1-08 完成**。后续检查仍包括：M2 持久采集、清理及串口集成；M3 真实授权／事务／并发去重／查询／CSV；M4 响应丢失／断网／重启恢复、实物电表／线材兼容、两款 Pi 的内存／CPU／磁盘写入、持续采集和四周离线容量。
+最终 Milestone 验收：**待 M1-07–M1-08 完成**。后续检查仍包括：M2 持久采集、清理及串口集成；M3 真实授权／事务／并发去重／查询／CSV；M4 响应丢失／断网／重启恢复、实物电表／线材兼容、两款 Pi 的内存／CPU／磁盘写入、持续采集和四周离线容量。

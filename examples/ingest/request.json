@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "device_id": "00000000-0000-4000-8000-000000000002",
+  "site_id": "00000000-0000-4000-8000-000000000001",
+  "measurement_point_id": "382d21dd-e783-5389-9743-695a2157c25c",
+  "session": {
+    "session_id": "00000000-0000-4000-8000-000000000003",
+    "device_id": "00000000-0000-4000-8000-000000000002",
+    "site_id": "00000000-0000-4000-8000-000000000001",
+    "started_at": "2026-01-02T03:04:05.123456Z"
+  },
+  "source": {
+    "source_id": "00000000-0000-4000-8000-000000000004",
+    "session_id": "00000000-0000-4000-8000-000000000003",
+    "measurement_point_id": "382d21dd-e783-5389-9743-695a2157c25c",
+    "kind": "p1_serial",
+    "profile_id": "dsmr5_nl",
+    "profile_revision": 1
+  },
+  "records": [
+    {
+      "record_id": "00000000-0000-4000-8000-000000000006",
+      "device_id": "00000000-0000-4000-8000-000000000002",
+      "site_id": "00000000-0000-4000-8000-000000000001",
+      "session_id": "00000000-0000-4000-8000-000000000003",
+      "source_id": "00000000-0000-4000-8000-000000000004",
+      "measurement_point_id": "382d21dd-e783-5389-9743-695a2157c25c",
+      "schema_version": 1,
+      "meter_time_raw": null,
+      "meter_time_utc": null,
+      "received_at": "2026-01-02T03:04:05.123456Z",
+      "sampled_at": "2026-01-02T03:04:05.123456Z",
+      "metrics": {
+        "energy_import_t1_kwh": null,
+        "energy_import_t2_kwh": null,
+        "energy_export_t1_kwh": null,
+        "energy_export_t2_kwh": null,
+        "power_import_kw": "1.020",
+        "power_export_kw": null,
+        "voltage_l1_v": null,
+        "voltage_l2_v": null,
+        "voltage_l3_v": null,
+        "current_l1_a": null,
+        "current_l2_a": null,
+        "current_l3_a": null,
+        "power_import_l1_kw": null,
+        "power_import_l2_kw": null,
+        "power_import_l3_kw": null,
+        "power_export_l1_kw": null,
+        "power_export_l2_kw": null,
+        "power_export_l3_kw": null
+      },
+      "fields": [
+        {
+          "code": "1-0:1.7.0",
+          "raw_values": [
+            "1.020*kW"
+          ],
+          "value": "1.020",
+          "unit": "kW",
+          "redacted": false
+        },
+        {
+          "code": "0-0:96.1.1",
+          "raw_values": [
+            "<redacted>"
+          ],
+          "value": null,
+          "unit": null,
+          "redacted": true
+        }
+      ],
+      "quality": {
+        "integrity": "valid",
+        "frame_length": 120,
+        "issues": []
+      }
+    }
+  ]
+}
