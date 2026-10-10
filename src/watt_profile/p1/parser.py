@@ -33,7 +33,7 @@ _SAFE_PHASE_COUNTERS = {f"1-0:{n}.{suffix}.0" for n in (32, 52, 72) for suffix i
 
 @dataclass(frozen=True)
 class FieldIssue:
-    code: str
+    code: str | None
     reason: str
 
 
