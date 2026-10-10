@@ -2,7 +2,7 @@
 
 > [English — 权威版本](m1.md) · **中文**
 
-状态：2026-10-10 实施中。M1-01–M1-04 已通过离线检查与独立审查；M1-05–M1-08 待实施。人工走查与硬件验证尚未进行。
+状态：2026-10-10 实施中。M1-01–M1-05 已通过离线检查与独立审查；M1-06–M1-08 待实施。人工走查与硬件验证尚未进行。
 
 ## 1. 目标与 Agent 读取方式
 
@@ -124,37 +124,185 @@ Pydantic 共享模型拒绝未知 key 和无时区时间。接受时间偏移并
 
 ### C5. 存储与迁移契约
 
-#### 关系结构
+#### 范围与列定义记法
 
-M1-05 在本文件内将下表展开为明确的逐列定义。这是设计产物，不是已运行迁移或仓储实现。
+这是 M1-05 设计规范，不是已执行的 DDL、迁移或仓储实现。M2 实现 SQLite Logger，M3 实现 PostgreSQL Server。除注明 Logger-only／Server-only 的列外，下述共享列在两种数据库中都存在。本地状态、配置、指纹及存储辅助字段不扩展 C6 传输模型。
 
-| 表 | SQLite Logger | PostgreSQL Server |
+下表每行定义一列（18 个指标也逐行列出）。`NN` 表示 `NOT NULL`；`NULL` 表示可空。`—` 表示**没有 SQL 默认值**，写入者必须提供值，可空 Snapshot 字段也必须显式提供 null。列出的默认值是 SQL 默认值，不代表生成身份。ID 和描述时间由已验收领域构造器提供，数据库不得生成替代身份。所有外键更新／删除使用 `NO ACTION`（无级联）；应用删除元数据前必须证明没有引用。
+
+| 类型缩写 | SQLite 定义 | PostgreSQL 定义 | 约束／表示 |
+| --- | --- | --- | --- |
+| `U4`, `U5` | `TEXT` | `UUID` | SQLite 为规范小写 UUID 文本，使用所指版本 4 或 5 及 RFC variant；Server 原生 UUID 同样检查版本／variant。SQLite 检查完整 `8-4-4-4-12` 十六进制语法、连字符、版本／variant 位置，不能只检查长度。 |
+| `UTC` | `TEXT` | `TIMESTAMPTZ` | SQLite 为完整且日历有效的 UTC 文本 `YYYY-MM-DDTHH:MM:SS.ffffffZ`，六位小数秒，拒绝无效日期。Server 接收 aware 时间，会话／输出时区为 UTC，并使用 C4 序列化器。不能隐式按本地时区转换。 |
+| `HASH` | `TEXT` | `TEXT` | 精确 64 个小写十六进制字符（`[0-9a-f]{64}`），不能只检查字符串长度。 |
+| `DEC` | `TEXT` | 无 precision/scale 限制的 `NUMERIC` | 可空、普通格式的非负有限十进制；SQLite 完整 `[0-9]+(?:\.[0-9]+)?` 语法，PostgreSQL 检查非负且有限（排除 NaN 与正负无穷）。不限制精度／小数位，不使用 REAL、float 或指数转换。 |
+| `JSON` | `TEXT` | `JSONB` | SQLite 为有效 JSON；根类型和结构见下文。不得包含原始帧／凭据。PostgreSQL 检查根类型，并由应用验证结构。 |
+| `BOOL` | `INTEGER` | `BOOLEAN` | SQLite `CHECK (column IN (0,1))`；PostgreSQL 原生布尔值。 |
+| `INT` / `TEXT` | `INTEGER` / `TEXT` | `INTEGER` / `TEXT` | 严格整数／文本输入；附加检查见下文。 |
+
+类型检查仅对标记 `NULL` 的列允许 SQL null。迁移实现词法／类型／根类型检查；应用在写入／读取前再次通过已验收领域模型验证。完整日历有效性、现场派生 UUID5、嵌套 JSON 隐私／排序、十进制词法 scale、规范字节与哈希一致性需要共享模型／codec 验证，简单 SQL 类型检查无法证明。初始迁移必须使用确定性的验证函数或等价完整表达式实现 SQLite 日历／语法检查，且每条连接写入前都注册这些函数。PostgreSQL 有限 NUMERIC 检查必须适配支持的版本。确切表达式实现及反例测试属于 M2／M3，此处不声称已执行。
+
+#### 身份与描述表
+
+| 表.列 | 类型 | 可空性 | 默认值 | 键／检查／含义 |
+| --- | --- | --- | --- | --- |
+| `devices.device_id` | U4 | NN | — | PK；安装身份 |
+| `devices.created_at` | UTC | NN | — | 写入者提供注册／本地创建时间 |
+| `devices.last_authenticated_contact_at` | UTC | NULL | `NULL` | Server-only；C6 认证联络，独立于读数接纳 |
+| `sites.site_id` | U4 | NN | — | PK；不从地址推断 |
+| `sites.address` | TEXT | NN | `''` | 本地／操作人员元数据；Server 管理员拥有 |
+| `sites.description` | TEXT | NN | `''` | 允许空文本；不进入快照 |
+| `measurement_points.measurement_point_id` | U5 | NN | — | PK；必须等于 `uuid5(site_id, "grid-connection")` |
+| `measurement_points.site_id` | U4 | NN | — | FK → `sites.site_id` |
+| `measurement_points.kind` | TEXT | NN | `'grid-connection'` | CHECK 等于 `grid-connection` |
+| `sessions.session_id` | U4 | NN | — | PK；不可变描述 |
+| `sessions.device_id` | U4 | NN | — | FK → `devices.device_id`；不可变 |
+| `sessions.site_id` | U4 | NN | — | FK → `sites.site_id`；不可变 |
+| `sessions.started_at` | UTC | NN | — | 不可变描述时间 |
+| `sessions.state` | TEXT | NN | `'open'` | Logger-only；CHECK 属于 `open,completed` |
+| `sessions.ended_at` | UTC | NULL | `NULL` | Logger-only；本地完成时间 |
+| `sessions.collection_enabled` | BOOL | NN | `0` | Logger-only；操作意图，不是 reader 活跃状态 |
+| `sources.source_id` | U4 | NN | — | PK；不可变描述 |
+| `sources.session_id` | U4 | NN | — | FK → `sessions.session_id`；MVP 中唯一 |
+| `sources.measurement_point_id` | U5 | NN | — | FK → `measurement_points.measurement_point_id` |
+| `sources.site_id` | U4 | NN | — | 仅存储、从 session 派生；复合归属 FK 见下文，不作为 source 字段上传 |
+| `sources.kind` | TEXT | NN | `'p1_serial'` | CHECK 等于 `p1_serial` |
+| `sources.profile_id` | TEXT | NN | `'dsmr5_nl'` | CHECK 等于 `dsmr5_nl` |
+| `sources.profile_revision` | INT | NN | `1` | CHECK 等于 1 |
+| `sources.meter_fingerprint` | HASH | NULL | `NULL` | Logger-only `LocalSourceBinding`；无原始标识；不上传 |
+
+Logger 会话 CHECK：`(state='open' AND ended_at IS NULL) OR (state='completed' AND ended_at IS NOT NULL AND collection_enabled=FALSE)`（SQLite 使用 0）。不添加 `ended_at >= started_at`：墙钟跳变应可观察，已验收模型没有此顺序限制。Server 会话仅含描述列，静默不代表完成。
+
+#### Snapshot 列与精确重试表示
+
+| `snapshots` 列 | 类型 | 可空性 | 默认值 | 键／检查／含义 |
+| --- | --- | --- | --- | --- |
+| `device_id` | U4 | NN | — | PK 部分；FK → devices；会话归属 FK 见下文 |
+| `record_id` | U4 | NN | — | PK 部分；仅生成一次，重试保留 |
+| `site_id` | U4 | NN | — | FK → sites；归属见下文 |
+| `session_id` | U4 | NN | — | FK → sessions；归属见下文 |
+| `source_id` | U4 | NN | — | FK → sources；归属见下文 |
+| `measurement_point_id` | U5 | NN | — | FK → points；现场派生 ID 与归属见下文 |
+| `schema_version` | INT | NN | `1` | CHECK 等于 1 |
+| `meter_time_raw` | TEXT | NULL | — | 完整 `[0-9]{12}[SW]` 语法；日历无效值可保留词法文本 |
+| `meter_time_utc` | UTC | NULL | — | 缺失／无效电表日期保持 null；不强制与 raw 文本配对 |
+| `received_at` | UTC | NN | — | 接收时间；查询／队列排序依据 |
+| `sampled_at` | UTC | NN | — | 窗口定稿时间；不与电表／接收时间做顺序 CHECK |
+| `energy_import_t1_kwh` | DEC | NULL | — | `metrics.energy_import_t1_kwh` |
+| `energy_import_t2_kwh` | DEC | NULL | — | `metrics.energy_import_t2_kwh` |
+| `energy_export_t1_kwh` | DEC | NULL | — | `metrics.energy_export_t1_kwh` |
+| `energy_export_t2_kwh` | DEC | NULL | — | `metrics.energy_export_t2_kwh` |
+| `power_import_kw` | DEC | NULL | — | `metrics.power_import_kw` |
+| `power_export_kw` | DEC | NULL | — | `metrics.power_export_kw` |
+| `voltage_l1_v` | DEC | NULL | — | `metrics.voltage_l1_v` |
+| `voltage_l2_v` | DEC | NULL | — | `metrics.voltage_l2_v` |
+| `voltage_l3_v` | DEC | NULL | — | `metrics.voltage_l3_v` |
+| `current_l1_a` | DEC | NULL | — | `metrics.current_l1_a` |
+| `current_l2_a` | DEC | NULL | — | `metrics.current_l2_a` |
+| `current_l3_a` | DEC | NULL | — | `metrics.current_l3_a` |
+| `power_import_l1_kw` | DEC | NULL | — | `metrics.power_import_l1_kw` |
+| `power_import_l2_kw` | DEC | NULL | — | `metrics.power_import_l2_kw` |
+| `power_import_l3_kw` | DEC | NULL | — | `metrics.power_import_l3_kw` |
+| `power_export_l1_kw` | DEC | NULL | — | `metrics.power_export_l1_kw` |
+| `power_export_l2_kw` | DEC | NULL | — | `metrics.power_export_l2_kw` |
+| `power_export_l3_kw` | DEC | NULL | — | `metrics.power_export_l3_kw` |
+| `fields` | JSON | NN | — | 完整 `SanitizedField` 对象数组： `code,raw_values,value,unit,redacted` |
+| `quality` | JSON | NN | — | 对象： `integrity='valid'`, 整数 `frame_length` 1–16,384, `issues` 数组，元素为 `{code,reason}` |
+| `canonical_snapshot` | TEXT | NN | — | 存储辅助：精确 C6 compact 规范 JSON UTF-8 文本，完整 Snapshot、metrics 对象、全部 null 及列表顺序；有效 JSON 对象 |
+| `payload_sha256` | HASH | NN | — | `canonical_snapshot` UTF-8 字节的 SHA-256；不唯一 |
+| `upload_state` | TEXT | NN | `'pending'` | Logger-only；CHECK 属于 `pending,uploaded` |
+| `uploaded_at` | UTC | NULL | `NULL` | Logger-only；经验证的确认时间 |
+| `ingested_at` | UTC | NN | — | Server-only；写入者提供提交 ingest 时间 |
+
+两种数据库的 PK 都是 `(device_id, record_id)`。已有键且哈希相等是重复；哈希不同按 C6 使整个批次冲突。哈希不能代替此 PK。Logger 上传 CHECK：`(upload_state='pending' AND uploaded_at IS NULL) OR (upload_state='uploaded' AND uploaded_at IS NOT NULL)`。
+
+`canonical_snapshot` 是不可变重试／导出的权威表示，CHECK 与应用验证共同限制为 16,384 UTF-8 字节。PostgreSQL 将其存为 TEXT 而非 JSONB，避免 JSONB 归一化和 NUMERIC 处理改变十进制字符串或规范字节。扁平列／JSON 投影在插入和加载时必须与解码 Snapshot 一致；它们与哈希一同写入，不单独修改内容。`metrics` 没有另存 JSON 列：精确的 18 个名称／null 在规范文本中，查询值在 18 列中。不保存派生总量。Server JSONB `fields`／`quality` 是投影，不是哈希输入。
+
+领域验证拒绝额外嵌套键、不安全值和不一致的字段十进制／单位。`fields` 保留数组顺序；脱敏项精确保持 `raw_values=["<redacted>"]`、`value=null`、`unit=null`、`redacted=true`。安全项遵循 parser 白名单／语法及十进制 scale 规则。`quality.issues` 保留可空 OBIS `code`，reason 为 `missing|invalid_value|invalid_unit|duplicate|redacted|invalid_timestamp|clock_offset_mismatch` 之一，按已验收模型去重并排序。原始 header／帧、Token、串口路径和指纹不得进入任一 JSON 投影或规范 Snapshot。
+
+#### 本地配置与服务端凭据
+
+| 表.列 | 类型 | 可空性 | 默认值 | 键／检查／含义 |
+| --- | --- | --- | --- | --- |
+| `logger_config.singleton_id` | INT | NN | `1` | Logger-only PK；CHECK 等于 1 |
+| `logger_config.device_id` | U4 | NN | — | FK → devices；拥有 active session 的安装 |
+| `logger_config.active_session_id` | U4 | NULL | `NULL` | 复合 FK `(active_session_id,device_id)` → sessions；可继续选择 completed 会话 |
+| `logger_config.server_url` | TEXT | NULL | `NULL` | 允许未配置；配置的 origin 满足 C6（HTTP/HTTPS，无凭据／路径／query／fragment） |
+| `logger_config.serial_path` | TEXT | NULL | `NULL` | 允许未配置；配置路径非空；仅本地 |
+| `logger_config.profile_id` | TEXT | NN | `'dsmr5_nl'` | CHECK 等于 `dsmr5_nl`；不重写不可变 active source 绑定 |
+| `logger_config.profile_revision` | INT | NN | `1` | CHECK 等于 1 |
+| `logger_config.baudrate` | INT | NN | `115200` | CHECK 正值；DSMR5 默认，允许显式诊断覆盖 |
+| `logger_config.bytesize` | INT | NN | `8` | CHECK 属于 5,6,7,8 |
+| `logger_config.parity` | TEXT | NN | `'N'` | CHECK 属于 `N,E,O,M,S` |
+| `logger_config.stopbits` | DEC | NN | `'1'` | CHECK 属于精确数值 1,1.5,2；不存 float |
+| `logger_config.timeout` | DEC | NN | `'1'` | CHECK 正值且有限；秒，运行期可中断遵循 C7 |
+| `logger_config.persisted_blocks` | JSON | NN | `'[]'` | 数组仅含唯一 `meter_changed,storage_full`；保留 tuple 顺序；零个、一个或两个原因 |
+| `logger_config.last_successful_upload_at` | UTC | NULL | `NULL` | Logger-only 状态检查点；在确认事务中设置，本地清理后保留 |
+| `device_credentials.credential_id` | U4 | NN | — | Server-only PK |
+| `device_credentials.device_id` | U4 | NN | — | FK → devices；换凭据保留安装 |
+| `device_credentials.token_sha256` | HASH | NN | — | UNIQUE；仅高熵 Token 摘要 |
+| `device_credentials.created_at` | UTC | NN | — | 写入者提供注册时间 |
+| `device_credentials.disabled_at` | UTC | NULL | `NULL` | 禁用凭据不能认证 |
+| `device_site_authorizations.device_id` | U4 | NN | — | Server-only 复合 PK 部分；FK → devices |
+| `device_site_authorizations.site_id` | U4 | NN | — | Server-only 复合 PK 部分；FK → sites |
+
+`logger_config` 仅在 Logger，另两表仅在 Server。SQLite CHECK 强制 `persisted_blocks` 的数组结构、允许的字符串成员及唯一性（最多两个元素）；写入者再次通过 `Lifecycle.persisted_blocks` 验证。它不能是单个最近错误码。设置／解决原因采用事务内读改写，并保留另一原因。确认换表／新建部署清除 `meter_changed`、保留未解决的 `storage_full`；解决存储仅清除 `storage_full`，暂停 intent 并要求显式 start。会话／来源／配置更新与这些变化一起原子保存。若存储故障阻止阻塞状态提交，不得声称已持久化：启动必须先检查可用空间／写入健康，再按 enabled intent 恢复。
+
+运行期 `collection_state`、`latest_error`、`stop_action`、`next_site_id`、串口 owner 与预览候选不是持久列。重启由 active session、intent、source binding 与未解决阻塞经 `restart` 重建；被中断的换现场在事务提交前没有新会话。状态按需计算：最新接收时间为 `MAX(received_at)`，上传成功使用持久化的 `last_successful_upload_at` 检查点，pending 数量／最早接收时间及规范 UTF-8 字节总数由 pending 行计算；错误字段是当前运行观测，free bytes 来自卷，storage-blocked 来自未解决原因。Server `latest_reading_received_at` 是 `MAX(received_at)`，不是 `last_authenticated_contact_at`。不新增重复 Snapshot 字段的状态计数器。
+
+本地 Token 只存于 0700 数据目录内单独的 0600 文件，绝不进入 SQLite／JSON／日志。Server 仅存摘要；禁用凭据／移除授权不会删除描述或读数。Profile 默认参数是 DSMR5 设计默认值，不表示全部电表／线材已通过硬件验收。
+
+#### 归属键、外键与索引
+
+两种数据库都声明以下 UNIQUE 候选键，即使单 ID 主键已经隐含唯一：points `(measurement_point_id,site_id)` 与 `(site_id,kind)`；sessions `(session_id,device_id,site_id)`、`(session_id,site_id)` 和 `(session_id,device_id)`；sources `(source_id,session_id,measurement_point_id)` 与 `(session_id)`（MVP 每会话一个来源）。SQLite 复合 FK 要求匹配的 UNIQUE 列顺序／collation。
+
+除表中单列 FK 外，sources `(session_id,site_id)` 引用 sessions `(session_id,site_id)`，sources `(measurement_point_id,site_id)` 引用 points `(measurement_point_id,site_id)`。Snapshot `(session_id,device_id,site_id)` 引用 sessions 对应键；`(source_id,session_id,measurement_point_id)` 引用 sources 对应键；`(measurement_point_id,site_id)` 引用 points 对应键。即使各个单独 ID 都存在，也不能跨设备／会话／现场／测点改绑。派生 `sources.site_id` 在关系层强制描述归属，不改变传输。创建测点及模型加载前验证确定性 point ID。Server ingest 另行检查当前 device-site 授权；历史 sessions 不引用可移除授权的外键。
+
+| 数据库 | 附加索引 | 用途 |
 | --- | --- | --- |
-| `devices` | `device_id`、`created_at` | 相同，加 nullable `last_authenticated_contact_at` |
-| `sites` | `site_id`、`address`、`description` | 相同；信息由管理员维护 |
-| `measurement_points` | `measurement_point_id`、`site_id`、`kind="grid-connection"` | 相同 |
-| `sessions` | SessionDescriptor 列；`state`、nullable `ended_at`、`collection_enabled` | 仅不可变 SessionDescriptor；不从失联推断结束 |
-| `sources` | SourceDescriptor 列、nullable 本地 `meter_fingerprint` | 仅 SourceDescriptor |
-| `snapshots` | 快照 ID／时间／版本、平铺指标、脱敏 fields、quality；`payload_sha256`；`upload_state`、nullable `uploaded_at` | 相同快照与 hash，加 `ingested_at`；无上传状态 |
-| `logger_config` | singleton key、nullable active session、中心 URL、串口路径／参数、持久化阻断码 | 不适用 |
-| `device_credentials` | 不适用；Token 用受保护文件 | Credential UUID v4、设备 FK、唯一 64 字符 Token 摘要、创建时间、nullable 停用时间 |
-| `device_site_authorizations` | 不适用 | 设备 FK、现场 FK；复合主键 |
+| Logger | snapshots `(upload_state,received_at,record_id)` | 选择最早 pending |
+| Logger | snapshots `(session_id,upload_state)` | 完成会话清理／保留 pending |
+| Server | snapshots `(site_id,received_at)` | 现场范围及最新读数 |
+| Server | snapshots `(site_id,session_id,received_at)` | 现场内会话范围 |
+| Server | snapshots `(device_id,received_at)` | 设备读数新鲜度 |
+| Server | snapshots `(source_id,received_at)` | 来源范围 |
+| 两者 | sessions `(device_id)`, `(site_id)`; sources `(measurement_point_id,site_id)` | 父行／FK 查找（已有精确等价前导键则省略） |
+| Server | device_credentials `(device_id)`; device_site_authorizations `(site_id,device_id)` | 凭据管理及反向授权查找 |
 
-UUID 在 SQLite 为小写规范文本，PostgreSQL 为原生 UUID；时间分别为 UTC ISO 文本、`TIMESTAMPTZ`。指标为 nullable 十进制 TEXT 和无固定精度限制的 `NUMERIC`，不使用 REAL／double precision。Fields、quality 分别为 JSON 文本、JSONB。版本／计数为整数，标志为布尔值（SQLite 0/1），摘要为 64 字符文本。地址／简介为文本，不是身份键。
+PK／UNIQUE 自带索引，不重复创建。查询采用 UTC 接收时间的左闭右开区间；同时间可按 device／record ID 排序，不改变存储接收时间。即使最后 ingest 的是旧积压，Server 最新读数仍取已接受接收时间的最大值。
 
-主键为各命名 ID，快照主键为 `(device_id, record_id)`，配置为 singleton。测量点添加唯一 `(site_id, kind)`，MVP source 添加唯一 `session_id`。通过描述的复合候选键及相应 FK 强制快照归属：session `(session_id, device_id, site_id)`、source `(source_id, session_id, measurement_point_id)`、point `(measurement_point_id, site_id)`。停用凭据、修改配置、移除授权不得级联删除测量数据。
+#### 脱敏生命周期与清理例子
 
-本地会话 state 限制为 `open|completed`，open 的 `ended_at` 为 null，completed 的 `ended_at` 非 null 且 collection disabled。上传 state 限制为 `pending|uploaded`，pending 的 `uploaded_at` 为 null，uploaded 非 null。除明确可空列外，其余列非 null；地址／简介可为空文本，指标／时间缺测遵循 C4。
+以下标签均为生成 v4 ID 和现场派生 v5 测点的合成别名，无需真实地址、Token 或电表标识。安装 D 在现场 A 创建 PA、SA、XA。暂停／重启保留 SA／XA／PA。切换到 B 时停止并 drain 旧 owner、完成 SA 且关闭采集，再原子创建 PB／SB／XB 并将 SB 选为暂停。旧 A 快照及规范描述／ID 不变，仍可按 A 的授权上传。以后返回 A 创建 SC／XC 并复用 PA，不按地址匹配、不重标来源／profile。失败的换现场事务保留此前已提交部署的选择，恢复不能声称 B 已提交。
 
-索引：Logger `(upload_state, received_at, record_id)` 和 `(session_id, upload_state)`；Server `(site_id, received_at)`、`(site_id, session_id, received_at)`、`(device_id, received_at)`、`(source_id, received_at)`。查询使用 UTC 接收时间，起点包含、终点排除。最新读数取接纳记录的最大接收时间，不取最后处理的积压行时间。
+| 合成会话 | 人工清理前 | 清理后 |
+| --- | --- | --- |
+| SA completed | R1 uploaded、R2 pending、R3 uploaded | 只删 R1／R3；保留 R2 及 D／A／PA／SA／XA 元数据 |
+| SB open、paused | R4 uploaded、R5 pending | 两者均保留，包括 uploaded R4 |
+| SC completed | R6 uploaded，无 pending | R6 可删除；元数据可保留，仅在无快照／其他外键引用／配置选择时可删除 |
 
-#### 持久化、清理及首次迁移
+清理选择／删除在同一事务中，重新检查 completed 与 uploaded 状态。Pending 行即使很旧、授权已撤销导致阻塞或磁盘已满，也不能删除。配置切换／禁用凭据不级联。确认在本地 acknowledgement 前丢失使 R2 留在 pending；以后 Server 精确重复确认可将其标为 uploaded，此后只有因 SA 已 completed 才可清理。本地清理从不请求 Server 删除。
 
-M2 的 SQLite 启用 FK、WAL、`synchronous=FULL` 和 5 秒 busy timeout。一个事务创建快照、hash 及 `upload_state="pending"`；确认批次后，一个事务将对应行改为 `uploaded` 并设置 `uploaded_at`。确认不更新不可变快照内容。
+#### 持久化、迁移与验证计划
 
-保留未结束会话的所有记录；手动清理只删除已结束会话的 uploaded 行，保留 pending 行及其引用元数据。不自动过期或按存储压力删除。数据卷可用空间小于 64 MiB 或写入失败时，停止新增，展示 `storage_full`，释放串口。此前成功提交的状态保持不变。压力解决后显式恢复；容量实测属于 M4，不宣称该阈值在所有文件系统都能预留足够空间。
+M2 在**每条连接**启用 SQLite 外键、WAL、`synchronous=FULL` 和 5 秒 busy timeout，并验证实际 pragma。Snapshot、投影、规范文本、哈希及 pending 状态在同一事务创建。对完整通过 C6 验证的批次确认，在一个事务内将全部请求行标 uploaded 并设置确认时间，内容不可变。会话完成／换现场／指纹绑定／解决阻塞也在受影响状态和配置行之间使用事务。M3 事务验证描述／授权并插入批次内容，以数据库 PK 强制唯一，并发时复查冲突；contact 跟踪遵循 C6 独立规则。
 
-M2 建立自身 SQLite 迁移链，首版为 `logger_0001`；M3 建立独立 PostgreSQL 迁移链，首版为 `server_0001`；引入运行依赖后均使用 Alembic/SQLAlchemy。首次迁移实现本表清单及约束。空库初始化和从项目上一版本升级均使用临时数据库。不执行源项目迁移、不复制其数据库、不提供破坏性的生产降级命令。中心端至少保留一年，MVP 不自动清理中心历史。SQLite 备份使用一致的 SQLite backup 操作，不单独复制缺少 WAL 的运行中主文件。
+保留 open 会话的所有记录。不自动本地过期或因压力删除。数据卷可用空间低于 64 MiB，或存储写入失败时，停止新增、呈现并在可行时持久化 `storage_full`，释放 owner。恰好 64 MiB 不触发数值阈值，但不保证写入成功。此前已提交行保持 pending／uploaded 状态。解决要求足够空间及成功的安全写检查，只清除此阻塞、暂停采集且需显式 start。阈值不是容量保证。
+
+引入依赖后，M2 从 `logger_0001` 建独立 Alembic／SQLAlchemy SQLite 链，M3 从 `server_0001` 建独立 PostgreSQL 链。每个初始 revision 只创建所属数据库的表、类型列、命名约束／索引及自己的 revision 跟踪。共享定义不表示相同 DDL。测试新库初始化、head 重复／无操作 upgrade，以及有前一**本项目** revision 后从该 revision 升级；0001 没有此前本项目 revision。不执行源项目迁移、不复制源数据库。以后 revision 必须保留 pending 规范字节／ID／哈希、intent 和两个阻塞原因。不规定破坏性生产 downgrade。
+
+以下是后续实现必须在隔离临时数据库／目录中用合成数据完成的检查，不是 M1-05 已执行检查：
+
+| 检查 | 所需证据／预期结果 |
+| --- | --- |
+| Schema／迁移 | 检查两种方言的列类型、null、默认值、PK／FK／UNIQUE／CHECK／索引；拒绝错误 UUID 版本、哈希、日期、JSON 根、负值／非有限／不安全十进制文本、不支持 revision 和无效状态组合。重新验证嵌套 JSON 及大小／哈希一致性；拒绝单独有效但复合归属错误的 ID。 |
+| 精确表示 | 往返验证全部 Snapshot 字段、18 指标、null 相、零、`1.2300`、安全／脱敏字段、issues、raw 有值但 UTC null 的时间；规范 UTF-8 字节和哈希不变。确认秘密或指纹不出现在快照持久化／上传／导出。 |
+| 事务／重启 | 在提交前／后中断，无部分 Snapshot、确认或部署切换。丢失确认保持 pending；精确重试去重、不同哈希冲突、并发重复插入保持 C6 行为。重启只恢复 enabled、open 且无阻塞会话。两种阻塞解决顺序都保留另一原因。 |
+| 清理／压力 | 执行混合例子，pending 和 open 会话行／元数据存活。安全模拟阈值下／等于／以上及写失败；释放 reader、已提交行完整、重启重查压力且显式恢复。不自动淘汰。 |
+| 备份／恢复 | 在并发 WAL 活动下使用 SQLite 一致性 backup，不只复制 live 主文件。恢复到新临时路径，检查 integrity／FK 并比较规范哈希、pending 数、元数据、intent 和阻塞。PostgreSQL 一致备份恢复到隔离实例并检查描述／读数／授权。单独 Token 备份使用相同权限保护；恢复不静默再生成 ID 或凭据。 |
+| 容量／保留 | M4 用合成负载在两款 Pi 测磁盘／WAL／索引开销及四周离线容量；硬件未测前标 pending。Server 独立保留已接纳记录至少一年，MVP 不自动 purge。本地清理及删除凭据／授权不得缩短 Server 保留期；验证本地清理后旧记录仍可查询。 |
+
+跟踪并仅删除检查创建的临时资源。即使没有 Token，备份仍含私有元数据，需限制访问。本规范及验证计划不触碰生产／源项目数据库、服务、设备或文件系统。
 
 ### C6. 上传 schema、确认与重试
 
@@ -299,4 +447,4 @@ python3.12 -m venv "$M1_VENV"
 
 八项任务验收全部通过且英中一致后，M1 才完成。分别记录命令、结果、未执行项及重要限制；类型／测试不代表真实数据库原子性或回传通过。
 
-最终 Milestone 验收：**待 M1-05–M1-08 完成**。后续检查仍包括：M2 持久采集、清理及串口集成；M3 真实授权／事务／并发去重／查询／CSV；M4 响应丢失／断网／重启恢复、实物电表／线材兼容、两款 Pi 的内存／CPU／磁盘写入、持续采集和四周离线容量。
+最终 Milestone 验收：**待 M1-06–M1-08 完成**。后续检查仍包括：M2 持久采集、清理及串口集成；M3 真实授权／事务／并发去重／查询／CSV；M4 响应丢失／断网／重启恢复、实物电表／线材兼容、两款 Pi 的内存／CPU／磁盘写入、持续采集和四周离线容量。
