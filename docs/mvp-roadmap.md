@@ -12,7 +12,7 @@ Deliver this workflow for an internal operator:
 
 **Prepare a Raspberry Pi → configure a site and P1 through its local page → copy registration details to the server → collect, store locally, and upload → find the site's data and export CSV.**
 
-The Logger targets Raspberry Pi 4 with 1 GB RAM and must also support Raspberry Pi 3B+. The Centralized Server runs in containers on the owner's home server with public access. Start with one Logger and one P1 source per monitoring session; the system is expected to grow to a few devices.
+The Logger targets Raspberry Pi 4 with 1 GB RAM and must also support Raspberry Pi 3B+. The Centralized Server runs in containers on the owner's home server with public access. Start with one Logger and one P1 source per monitoring session; the system is expected to grow to a few devices. The sole MVP meter profile is Netherlands DSMR 5 (`dsmr5_nl`), based on DSMR 5.0.2; additional meter profiles are deferred.
 
 The planning target is approximately one to two weeks of development, assuming the hardware, P1 cable, test meter, and host environment are available. The milestone estimates total 6–10 working days; they are estimates, not a delivery guarantee. Meter-specific adaptation and hardware failures can extend the schedule. Software readiness and the completion of several weeks of field monitoring are separate outcomes.
 
@@ -33,7 +33,8 @@ SSH, Ethernet addressing, DHCP, Wi-Fi, internet access, and WireGuard are prepar
 - A Site UUID identifies a site, not a device or credential. Editing the address or description, restarting the Logger, or changing its Token does not change that UUID. It is not derived from the address or Token.
 - The local page offers **create a new site** and **use an existing Site UUID**. Revisit an existing site with its UUID and a new monitoring session; do not infer identity by matching addresses.
 - Keep separate identities for the Logger device, site, monitoring session, measurement point, and source. The MVP has one P1 source per session; it does not need a multi-meter configuration interface.
-- Every stored snapshot retains its site, device, session, source, and stable record ID. Moving a Logger to a new site starts a new session. Already stored and pending records retain their original ownership.
+- Every stored snapshot retains its site, device, session, measurement point, source, and stable record ID. Moving a Logger to a new site starts a new session. Already stored and pending records retain their original ownership.
+- Stop/start and process restarts continue an open monitoring session. Explicit completion, changing sites, or confirmed meter replacement starts a new session/source; the same site retains its grid measurement point.
 
 ### Credentials and manual registration
 
@@ -52,7 +53,7 @@ SSH, Ethernet addressing, DHCP, Wi-Fi, internet access, and WireGuard are prepar
 - Use Raspberry Pi OS Lite 64-bit, an ARM64 container, Python/FastAPI, `pyserial`, and SQLite in a persistent volume. A single application process owns collection, upload, and the local API. Do not run Node.js, a separate database server, or an AI runtime on the Pi.
 - Serve a small HTML page with minimal JavaScript. Configure the site, server URL, P1 serial path and parameters, and installed meter profile. Provide read preview, start/stop controls, and status. Parser rules are maintained in the application, not edited on site.
 - Continuously read and validate complete P1 telegrams. At each ten-second window boundary, persist at most one snapshot: the latest new valid telegram received in that window, including all sanitized parsed fields, original device time, reception time, and quality metadata.
-- If a window contains no new valid telegram, leave a gap. Do not copy an old reading into a new timestamp. Reject CRC mismatches; a meter format that cannot be verified requires an explicit profile policy established in M1.
+- If a window contains no new valid telegram, leave a gap. Do not copy an old reading into a new timestamp. The DSMR 5 profile rejects CRC mismatches and unverifiable frames. Preserve safe standard fields, including supplementary meter readings; redact identifiers, free text, and unknown field values, retaining unknown codes and redaction markers.
 - Store timestamps in UTC while retaining the original meter timestamp. Preserve cumulative import/export energy precision and missing values; missing phases are not zero. Do not retain raw serial bytes as the long-term record.
 - Commit the snapshot and pending-upload state locally before transmission. Keep the entire monitoring session locally, including uploaded records. Manual cleanup is limited to uploaded records from completed sessions; pending records must survive cleanup.
 - Show the latest valid reading time, collection errors, latest successful upload, authorization/upload errors, backlog, and storage pressure. At capacity, alert and stop adding records rather than deleting old data or silently treating collection as healthy.
@@ -70,15 +71,15 @@ Ten-second snapshots reduce the stored record count to at most 8,640 per day or 
 - Mark records uploaded only after the server's persistence confirmation. A timeout or lost response leaves them pending; retry the same IDs. Keep upload-state updates grouped by confirmed batch.
 - Track the last authenticated device contact separately from the latest reading timestamp. A successful contact during backlog recovery does not imply that fresh measurements are arriving.
 
-The exact endpoint paths, payload schema, limits, migrations, and serial lifecycle contracts are M1 outputs, to be fixed before dependent implementation begins. The behaviors and identity boundaries above are already agreed.
+The [M1 contracts](milestone/m1.md) fix the ingest endpoint, payload schema, limits, migration boundaries, and serial lifecycle before dependent implementation. Executable types and checks remain planned M1 outputs; documenting the contract does not imply implementation or acceptance. The behaviors and identity boundaries above are agreed.
 
 ## 4. Milestones and acceptance
 
-Advance in order: **M1 → M2 → M3 → M4**. Finish each milestone's acceptance checks before advancing to its dependent work. Split implementation into small task cards with boundaries, acceptance criteria, and checks before starting that milestone; this roadmap does not itself activate delegated orchestration.
+Advance in order: **M1 → M2 → M3 → M4**. Finish each milestone's acceptance checks before advancing to its dependent work. Split implementation into small task cards with boundaries, acceptance criteria, and checks before starting that milestone; this roadmap does not itself activate delegated orchestration. Each milestone uses one English document and its Chinese mirror under `docs/milestone/`; the [M1 document](milestone/m1.md) contains its design, contracts and eight atomic task sections.
 
 | Milestone | Deliverable | Acceptance | Estimate |
 | --- | --- | --- | --- |
-| **M1 — Protocol and contracts** | Independent project skeleton, extracted P1 parser, electrical mapping and sanitized fixtures, identity/storage/upload contracts | Parser and mapping checks pass; first meter's serial settings and fields are established; contracts distinguish site, device, session, source, and record identity | 1–2 days |
+| **[M1 — Protocol and contracts](milestone/m1.md)** | Independent project skeleton, extracted P1 parser, electrical mapping and sanitized fixtures, identity/storage/upload contracts | Parser and mapping checks pass; first meter's serial settings and fields are established; contracts distinguish site, device, session, source, and record identity | 1–2 days |
 | **M2 — Standalone Logger** | Local configuration and read test, Site UUID and Token, ten-second snapshots, SQLite, collection lifecycle, status | Offline setup and collection work; identity, configuration, readings, and pending state survive restart; disconnects recover; moving sites preserves old record ownership | 2–3 days |
 | **M3 — Manually managed server** | Container deployment, login, site/device registration, authorized batch ingest, status, filtered queries and CSV | Unknown credentials/sites are rejected; registration permits ingest; replay does not duplicate readings; data can be found by Site UUID; CSV matches queries | 2–3 days |
 | **M4 — Integrated pilot release** | Logger uploader and backlog recovery, end-to-end status, hardware/resource verification, deployment and operation instructions | Network loss, process restart, and lost responses recover; old/new site records remain separate; Pi 4 1 GB and 3B+ verification passes; configuration-to-CSV walkthrough completes | 1–2 days |

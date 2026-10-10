@@ -9,6 +9,7 @@ This file contains stable working rules for agents in this repository. Keep proj
 - Reply in the user's language. Tracked project documentation is English-first and has a semantically equivalent Chinese mirror: `name.md` and `name_zh.md`. Update both in the same change. If they disagree, the English version is authoritative.
 - Link each language pair immediately below its H1, and link to the matching language when referencing another mirrored document.
 - Keep this guide concise. Add stable repository rules here when they are agreed; keep changing plans and execution evidence elsewhere.
+- Keep each milestone in one English Markdown file and its Chinese mirror under `docs/milestone/`, such as `m1.md` and `m1_zh.md`. Put its design, contracts, atomic task sections, and acceptance record in that document; do not split them into additional milestone files.
 
 ## Everyday work
 
@@ -23,12 +24,12 @@ Each task card should state its boundaries, acceptance criteria, and relevant ch
 
 | Role | Default model | Reasoning | When to change it |
 | --- | --- | --- | --- |
-| Orchestrator | `gpt-6-sol` | `medium` | Use Sol `high` only when cross-step coordination needs deeper reasoning. |
-| Implementer / fixer | `gpt-6-luna` | `medium` | Use Sol `medium` for concurrency, authentication, money, data migration, or substantial cross-module contracts. |
-| Reviewer | `gpt-6-sol` | `medium` | Raise effort only when concrete task risk justifies it; `high` is not the default. |
+| Orchestrator | `gpt-6.1-sol` | `medium` | Use Sol `high` only when cross-step coordination needs deeper reasoning. |
+| Implementer / fixer | `gpt-6.1-luna` | `medium` | Use Sol `medium` for concurrency, authentication, money, data migration, or substantial cross-module contracts. |
+| Reviewer | `gpt-6.1-sol` | `medium` | Raise effort only when concrete task risk justifies it; `high` is not the default. |
 
 - User-selected model and reasoning settings override these defaults. Set models through the harness's actual controls; a prompt or this file cannot switch the current parent session's model. If a requested setting is unavailable, state the limitation and use an available suitable setting without claiming a switch occurred.
-- Do not select `gpt-6-astra` automatically. Explain the specific unresolved risk to the user and let them decide whether to use it.
+- Do not select `gpt-6.1-astra` automatically. Explain the specific unresolved risk to the user and let them decide whether to use it.
 - Start each reviewer in a fresh agent context. Its task-specific input is **only the original task card and the current task diff**. Do not pass implementation reports, fixer narratives, prior review opinions, or the orchestrator's preferred verdict. The reviewer may inspect relevant repository code and rules and independently run appropriate checks.
 - A review finding blocks acceptance only when it demonstrates a violated acceptance criterion, a reproducible functional defect, or a realistic security, data, or compatibility risk. State the evidence and required correction. Style preferences, speculative extreme cases, and improvements outside the task may be noted, but do not trigger repair or prevent a pass.
 - If review passes, continue without a per-round report. For blocking findings, save a concise temporary review note and pass it, the task card, and the current diff to a fresh fixer. A fresh reviewer then examines the original task card and revised cumulative diff without the fixer's account. Allow at most **three** automatic repair and re-review rounds per task; report unresolved blockers to the user instead of continuing the loop.
