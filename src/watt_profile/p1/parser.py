@@ -13,7 +13,7 @@ _OBIS_LINE = re.compile(r"(?P<code>\d+-\d+:\d+\.\d+\.\d+)(?P<values>(?:\([^()]*\
 _NUMERIC = re.compile(r"(?P<number>\d+(?:\.\d+)?)(?:\*(?P<unit>[A-Za-z0-9]+))?\Z")
 _TIMESTAMP = re.compile(r"\d{12}[SW]\Z")
 _VERSION = re.compile(r"\d{2}\Z")
-_TARIFF = re.compile(r"[12]\Z")
+_TARIFF = re.compile(r"(?:[12]|000[12])\Z")
 _EQUIPMENT_CODE = re.compile(r"0-0:96\.1\.1\Z")
 _SAFE_NUMERIC_UNITS = {
     "1-0:1.8.1": "kWh",
@@ -153,7 +153,7 @@ def parse_telegram(frame: bytes) -> P1Telegram:
             raise P1ParseError("malformed_frame")
         code = match.group("code")
         values = re.findall(r"\(([^()]*)\)", match.group("values"))
-        safe, numeric, unit, issue = _sanitize(code, values)
+        safe, numeric, unit, issue = sanitize_field_values(code, values)
         if _EQUIPMENT_CODE.fullmatch(code) and values:
             fingerprint = hashlib.sha256(values[-1].encode("ascii")).hexdigest()
         fields.append(
@@ -173,9 +173,10 @@ def parse_telegram(frame: bytes) -> P1Telegram:
     return P1Telegram(len(frame), status, reason, timestamp, fingerprint, tuple(fields))
 
 
-def _sanitize(
+def sanitize_field_values(
     code: str, values: list[str]
 ) -> tuple[list[str], Decimal | None, str | None, str | None]:
+    """Shared closed safe-value grammar for parsing and domain revalidation."""
     if code == "0-0:1.0.0":
         ok = len(values) == 1 and _TIMESTAMP.fullmatch(values[0])
         return (values if ok else [_REDACTED], None, None, None if ok else "invalid_value")

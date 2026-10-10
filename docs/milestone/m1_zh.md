@@ -2,7 +2,7 @@
 
 > [English — 权威版本](m1.md) · **中文**
 
-状态：2026-10-10 实施中。M1-01–M1-03 已通过离线检查与独立审查；M1-04–M1-08 待实施。人工走查与硬件验证尚未进行。
+状态：2026-10-10 实施中。M1-01–M1-04 已通过离线检查与独立审查；M1-05–M1-08 待实施。人工走查与硬件验证尚未进行。
 
 ## 1. 目标与 Agent 读取方式
 
@@ -118,7 +118,7 @@ Pydantic 共享模型拒绝未知 key 和无时区时间。接受时间偏移并
 
 持久化会话状态 `open|completed` 和操作意图 `collection_enabled: bool`。未结束的暂停会话可恢复，已结束会话不可恢复。明确结束或切换现场时，关闭旧会话并在采集前创建新会话／source。已有现场新会话保留测量点 ID。首次接纳的主电表指纹在本地绑定 source；后续不同指纹停止采集并报告 `meter_changed`，须明确确认后新建会话。缺少指纹时不建立或替换身份，记录标识缺失 issue，不虚构指纹。
 
-运行采集状态为 `idle|previewing|starting|collecting|reconnecting|stopping|blocked`。稳定错误码含 `serial_busy`、`serial_unavailable`、`serial_permission`、`no_valid_reading`、`meter_changed`、`storage_full`。仅预览不创建快照或会话。重启只恢复 enabled 且未结束的会话；存储／换表阻断保留至解决。
+运行采集状态为 `idle|previewing|starting|collecting|reconnecting|stopping|blocked`。稳定错误码含 `serial_busy`、`serial_unavailable`、`serial_permission`、`no_valid_reading`、`meter_changed`、`storage_full`。仅预览不创建快照或会话。重启只恢复 enabled 且未结束的会话；存储／换表阻断保留至解决。本地生命周期状态通过 `persisted_blocks`（由不重复的 `meter_changed|storage_full` 错误码组成的 tuple）独立保存未解决的原因。设置或解除其中一个原因不得丢失另一个原因，重启后也须保留。解除存储阻断后暂停采集，须显式启动；确认换表会创建新会话／source，同时保留尚未解决的存储阻断。这些本地状态字段不改变上传 wire 契约。
 
 `LoggerStatus` 含采集状态、当前 ID（可 null）、最新接纳 `received_at`、最近采集错误码、最近上传成功 UTC、最近上传错误码、pending 条数／字节数、最旧 pending 接收时间、可用字节数和存储阻断标志。`DeviceStatus` 区分 `last_authenticated_contact_at` 与 `latest_reading_received_at`；连接正常但补传旧数据不能标为正在产生新测量。
 
@@ -215,7 +215,7 @@ M1 测试只使用 fake serial 和时钟。目标电表／线材试验和两款 
 
 ## 3. 原子实现任务
 
-所有任务均**待实施**。每个任务同时交付代码与对应的有效检查。阅读本文件指定的 C 节，不让后续任务重新猜测设计。改动遵守任务边界；契约变化时同步更新本文件英中两版。
+任务进度见上方状态。每个任务同时交付代码与对应的有效检查。阅读本文件指定的 C 节，不让后续任务重新猜测设计。改动遵守任务边界；契约变化时同步更新本文件英中两版。
 
 ### M1-01 — 独立包
 
@@ -299,4 +299,4 @@ python3.12 -m venv "$M1_VENV"
 
 八项任务验收全部通过且英中一致后，M1 才完成。分别记录命令、结果、未执行项及重要限制；类型／测试不代表真实数据库原子性或回传通过。
 
-实现结果：**未运行；实现待执行**。后续检查仍包括：M2 持久采集、清理及串口集成；M3 真实授权／事务／并发去重／查询／CSV；M4 响应丢失／断网／重启恢复、实物电表／线材兼容、两款 Pi 的内存／CPU／磁盘写入、持续采集和四周离线容量。
+最终 Milestone 验收：**待 M1-05–M1-08 完成**。后续检查仍包括：M2 持久采集、清理及串口集成；M3 真实授权／事务／并发去重／查询／CSV；M4 响应丢失／断网／重启恢复、实物电表／线材兼容、两款 Pi 的内存／CPU／磁盘写入、持续采集和四周离线容量。
