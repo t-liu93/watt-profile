@@ -2,7 +2,7 @@
 
 > **English — source of truth** · [中文](mvp-roadmap_zh.md)
 
-Status: agreed planning baseline, 2026-10-10. All milestones are planned; this document does not claim that application code, deployment commands, or verification results already exist.
+Status: updated 2026-10-10. M1 offline implementation and independent review are complete; owner human acceptance is pending. M2–M4 remain planned. The [M1 completion record](milestone/m1.md#4-checks-and-completion-record) contains verification evidence and limits.
 
 This roadmap defines the first usable release. See the [high-level architecture](architecture-and-roadmap.md) for the system direction and the [protocol handover](home-automation-energy-handover.md) for reusable source code and its limitations.
 
@@ -71,7 +71,7 @@ Ten-second snapshots reduce the stored record count to at most 8,640 per day or 
 - Mark records uploaded only after the server's persistence confirmation. A timeout or lost response leaves them pending; retry the same IDs. Keep upload-state updates grouped by confirmed batch.
 - Track the last authenticated device contact separately from the latest reading timestamp. A successful contact during backlog recovery does not imply that fresh measurements are arriving.
 
-The [M1 contracts](milestone/m1.md) fix the ingest endpoint, payload schema, limits, migration boundaries, and serial lifecycle before dependent implementation. Executable types and checks remain planned M1 outputs; documenting the contract does not imply implementation or acceptance. The behaviors and identity boundaries above are agreed.
+The [M1 contracts](milestone/m1.md) fix the ingest endpoint, payload schema, limits, migration boundaries, and serial lifecycle before dependent implementation. M1 executable types, diagnostic probe and offline checks are implemented and independently reviewed; C5 storage remains a specification for M2/M3. The behaviors and identity boundaries above are agreed.
 
 ## 4. Milestones and acceptance
 
@@ -79,7 +79,7 @@ Advance in order: **M1 → M2 → M3 → M4**. Finish each milestone's acceptanc
 
 | Milestone | Deliverable | Acceptance | Estimate |
 | --- | --- | --- | --- |
-| **[M1 — Protocol and contracts](milestone/m1.md)** | Independent project skeleton, extracted P1 parser, electrical mapping and sanitized fixtures, identity/storage/upload contracts | Parser and mapping checks pass; first meter's serial settings and fields are established; contracts distinguish site, device, session, source, and record identity | 1–2 days |
+| **[M1 — Protocol and contracts](milestone/m1.md)** | Independent project skeleton, extracted P1 parser, electrical mapping and sanitized fixtures, identity/storage/upload contracts | Parser and mapping checks pass; DSMR 5 profile serial defaults and fields are established, with physical meter/cable compatibility verified in M4; contracts distinguish site, device, session, source, and record identity | 1–2 days |
 | **M2 — Standalone Logger** | Local configuration and read test, Site UUID and Token, ten-second snapshots, SQLite, collection lifecycle, status | Offline setup and collection work; identity, configuration, readings, and pending state survive restart; disconnects recover; moving sites preserves old record ownership | 2–3 days |
 | **M3 — Manually managed server** | Container deployment, login, site/device registration, authorized batch ingest, status, filtered queries and CSV | Unknown credentials/sites are rejected; registration permits ingest; replay does not duplicate readings; data can be found by Site UUID; CSV matches queries | 2–3 days |
 | **M4 — Integrated pilot release** | Logger uploader and backlog recovery, end-to-end status, hardware/resource verification, deployment and operation instructions | Network loss, process restart, and lost responses recover; old/new site records remain separate; Pi 4 1 GB and 3B+ verification passes; configuration-to-CSV walkthrough completes | 1–2 days |

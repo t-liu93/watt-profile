@@ -2,7 +2,7 @@
 
 > [English — 权威版本](m1.md) · **中文**
 
-状态：2026-10-10 实施中。M1-01–M1-07 已通过离线检查与独立审查；M1-08 待实施。人工走查与硬件验证尚未进行。
+状态：2026-10-10 离线实现完成。M1-01–M1-08 均通过检查及独立审查。Walkthrough 命令已在新的临时代码副本中验证；所有者人工验收仍待确认。运行期与硬件验证属于 M2–M4。
 
 ## 1. 目标与 Agent 读取方式
 
@@ -22,7 +22,7 @@ M1 实现纯协议／模型／诊断代码和离线检查。Logger UI、常驻 w
 
 `pyproject.toml` 声明运行依赖和含 pytest、Ruff、pip-tools、setuptools、wheel 的 `dev` extra。实现时用 pip-tools 将解析后的直接及间接依赖锁定到 `requirements-dev.lock`，记录重新生成命令；基于锁文件的 editable install 必须在独立虚拟环境可用。测试放在 `tests/`，fixtures 在 `tests/fixtures/`，传输样例在 `examples/ingest/`。Fixtures 不依赖包安装位置；profile 使用 Python 常量，不使用外部可编辑 YAML。
 
-M1-01 建立工具后，通用规划检查如下：
+M1-01 已建立工具，通用检查如下：
 
 ```bash
 python -m pip install -r requirements-dev.lock
@@ -457,7 +457,7 @@ M1 测试只使用 fake serial 和时钟。目标电表／线材试验和两款 
 
 ## 4. 检查与完成记录
 
-在实现存在前，C1 及任务命令均为计划检查。M1-01 在仓库外使用唯一的隔离 Python 3.12 虚拟环境：
+C1 工具及任务检查已经实现。复现 M1-01 检查时，在仓库外创建唯一的隔离 Python 3.12 虚拟环境：
 
 ```bash
 M1_VENV="$(mktemp -d /tmp/watt-profile-m1-venv.XXXXXX)"
@@ -469,8 +469,22 @@ python3.12 -m venv "$M1_VENV"
 "$M1_VENV/bin/python" -m ruff format --check .
 ```
 
-包测试使用 pytest 的 `tmp_path` 创建仓库外临时工作目录，并从子进程环境中移除继承的 `PYTHONPATH`。重新生成锁文件时，先运行 `M1_PIP_CACHE="$(mktemp -d /tmp/watt-profile-pip-tools-cache.XXXXXX)"`，再运行 `PIP_TOOLS_CACHE_DIR="$M1_PIP_CACHE" "$M1_VENV/bin/python" -m piptools compile --extra dev --allow-unsafe --resolver=backtracking --output-file requirements-dev.lock pyproject.toml`。保留环境供 M1-08 使用；之后只用 `rm -rf -- "$M1_VENV" "$M1_PIP_CACHE"` 删除本 shell 精确创建的目录。本次运行的实际临时路径记录在 `development-notes/m1-20261010/M1-01-resources.txt`。使用合成／脱敏数据及隔离临时资源，不连接生产服务，不与已有串口 reader 争用。
+包测试使用 pytest 的 `tmp_path` 创建仓库外临时工作目录，并从子进程环境中移除继承的 `PYTHONPATH`。重新生成锁文件时，先运行 `M1_PIP_CACHE="$(mktemp -d /tmp/watt-profile-pip-tools-cache.XXXXXX)"`，再运行 `PIP_TOOLS_CACHE_DIR="$M1_PIP_CACHE" "$M1_VENV/bin/python" -m piptools compile --extra dev --allow-unsafe --resolver=backtracking --output-file requirements-dev.lock pyproject.toml`。保留环境供 M1-08 使用；之后只用 `rm -rf -- "$M1_VENV" "$M1_PIP_CACHE"` 删除本 shell 精确创建的目录。使用合成／脱敏数据及隔离临时资源，不连接生产服务，不与已有串口 reader 争用。
 
-八项任务验收全部通过且英中一致后，M1 才完成。分别记录命令、结果、未执行项及重要限制；类型／测试不代表真实数据库原子性或回传通过。
+M1-08 离线验收检查（2026-10-10，Python 3.12.13；独立审查已通过）：
 
-最终 Milestone 验收：**待 M1-08 完成**。后续检查仍包括：M2 持久采集、清理及串口集成；M3 真实授权／事务／并发去重／查询／CSV；M4 响应丢失／断网／重启恢复、实物电表／线材兼容、两款 Pi 的内存／CPU／磁盘写入、持续采集和四周离线容量。
+| 命令 | 结果 |
+| --- | --- |
+| `/tmp/watt-profile-m1-venv/bin/python -m pytest --basetemp /tmp/watt-profile-m1-run-wk31yice/m1-08-impl tests/test_m1_pipeline.py -q` | 通过，1 项测试。 |
+| `mkdir -p /tmp/watt-profile-m1-run-wk31yice/m1-08-impl && /tmp/watt-profile-m1-venv/bin/python -m pytest --basetemp /tmp/watt-profile-m1-run-wk31yice/m1-08-impl -q` | 通过，152 项测试。 |
+| `/tmp/watt-profile-m1-venv/bin/python -m ruff check .` | 通过。 |
+| `/tmp/watt-profile-m1-venv/bin/python -m ruff format --check .` | 通过，31 个文件格式正确。 |
+| `/tmp/watt-profile-m1-venv/bin/python -I -c 'import watt_profile; import watt_profile.contracts.upload; import watt_profile.p1.parser; print(watt_profile.__file__)'` | 通过；导入解析到 `src/watt_profile` 下的 editable 包。 |
+
+首次全套测试使用了父目录不存在的嵌套 `--basetemp` 路径，在 `test_package.py` 设置阶段失败（151 项通过，1 项设置错误）。先创建确切的任务临时目录后重跑，问题解决。独立审查通过后，已删除本次创建的 `/tmp/watt-profile-m1-venv`、`/tmp/watt-profile-pip-tools-cache` 和 `/tmp/watt-profile-m1-run-wk31yice`。各任务临时环境、导入目录和 pytest 目录也已删除，包括本次创建的 `pytest-232`–`pytest-234` 及其 current 链接；保留了原有 pytest 父目录。仓库内生成的 Python／pytest／Ruff 缓存已删除。检查只使用合成电报字节，没有连接串口设备、数据库、接收服务或网络。不能据此证明运行期持久化、远程回传、硬件兼容或人工走查通过。
+
+八项任务按顺序通过独立审查。M1-01、M1-04、M1-07 各经过一轮修复及新的独立复审，其余任务首轮通过。已解决的阻断为安装说明漏建虚拟环境、一个持久生命周期阻断覆盖另一个，以及 Linux 独占打开的 EAGAIN／EWOULDBLOCK 错误分类。每项已验收任务对应一个本地实现提交；未推送或发布。
+
+编排者还在新建 `/tmp/watt-profile-m1-walkthrough.3mRSB6` 代码副本中执行了中文 walkthrough 的全部命令：锁定安装、`pip check`、移除 PYTHONPATH 后在仓库外导入、152 项测试、两项 Ruff、CLI 帮助、request／replay／confirmation 样例、注入假设备的 probe，以及协议／上传／生命周期／probe 专项检查（28／66／17／15 项测试）。全部通过；代码副本、venv 和缓存已由走查清理步骤删除。这验证了操作说明，所有者人工验收仍待确认。类型／测试不代表真实数据库原子性或回传通过。
+
+最终 Milestone 验收：**M1 离线实现及独立审查通过；所有者人工验收待确认**。后续检查仍包括：M2 持久采集、清理及串口集成；M3 真实授权／事务／并发去重／查询／CSV；M4 响应丢失／断网／重启恢复、实物电表／线材兼容、两款 Pi 的内存／CPU／磁盘写入、持续采集和四周离线容量。

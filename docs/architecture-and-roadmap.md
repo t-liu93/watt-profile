@@ -2,7 +2,7 @@
 
 > **English** · [中文](architecture-and-roadmap_zh.md)
 
-Status: high-level planning baseline, updated 2026-10-10 to reflect the agreed MVP. This document records the system direction, not a claim that any component already exists. The [MVP roadmap](mvp-roadmap.md) defines the release boundary, milestones, and acceptance checks.
+Status: high-level planning baseline, updated 2026-10-10 to reflect the agreed MVP. This document records the system direction. M1 offline protocol/contracts/probe implementation passed independent review; owner human acceptance is pending, and M2–M4 remain planned. The [MVP roadmap](mvp-roadmap.md) defines the release boundary, milestones, and acceptance checks.
 
 ## Purpose and boundaries
 
@@ -49,4 +49,4 @@ Before the pilot is accepted, validate the following with synthetic or sanitized
 - Credential/site authorization, stable UUIDs, changing sites without relabeling old data, restart during collection/upload, prolonged network loss, response loss, replay, and deduplication.
 - Matching query/CSV results. Chart consistency, traceable report figures, model outages, and Modbus device validation are checks for later milestones.
 
-The [M1 document](milestone/m1.md) contains the initial P1 profile, precise API/schema contracts and eight atomic implementation tasks. Executable contracts and checks are still planned. Each milestone keeps its design, tasks and acceptance record in one English Markdown file and its Chinese mirror under `docs/milestone/`. Snapshot size and storage capacity are measured during MVP verification. Exact future Modbus models, AI model selection, report presentation, and remote configuration/update mechanisms remain later design work.
+The [M1 document](milestone/m1.md) contains the initial P1 profile, precise API/schema contracts and eight atomic implementation tasks. Its executable protocol/domain/upload contracts, diagnostic probe and offline checks are implemented and independently reviewed; storage is specified for M2/M3. See the [completion record](milestone/m1.md#4-checks-and-completion-record). Each milestone keeps its design, tasks and acceptance record in one English Markdown file and its Chinese mirror under `docs/milestone/`. Snapshot size and storage capacity are measured during MVP verification. Exact future Modbus models, AI model selection, report presentation, and remote configuration/update mechanisms remain later design work.
