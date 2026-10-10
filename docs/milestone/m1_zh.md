@@ -2,7 +2,7 @@
 
 > [English — 权威版本](m1.md) · **中文**
 
-状态：2026-10-10 设计基线。M1-01–M1-08 均待实施；不表示代码、通过的测试或硬件验收已经存在。
+状态：2026-10-10 实施中。M1-01 已通过离线检查与独立审查；M1-02–M1-08 待实施。人工走查与硬件验证尚未进行。
 
 ## 1. 目标与 Agent 读取方式
 
@@ -283,7 +283,19 @@ M1 测试只使用 fake serial 和时钟。目标电表／线材试验和两款 
 
 ## 4. 检查与完成记录
 
-在实现存在前，C1 及任务命令均为计划检查。M1-01 在此补充准确环境／锁文件步骤，M1-08 在此记录实际结果。使用合成／脱敏数据及隔离临时资源，只清理本次创建的资源。不连接生产服务，不与已有串口 reader 争用。
+在实现存在前，C1 及任务命令均为计划检查。M1-01 在仓库外使用唯一的隔离 Python 3.12 虚拟环境：
+
+```bash
+M1_VENV="$(mktemp -d /tmp/watt-profile-m1-venv.XXXXXX)"
+python3.12 -m venv "$M1_VENV"
+"$M1_VENV/bin/python" -m pip install -r requirements-dev.lock
+"$M1_VENV/bin/python" -m pip install --no-build-isolation --no-deps -e .
+"$M1_VENV/bin/python" -m pytest tests/test_package.py -q
+"$M1_VENV/bin/python" -m ruff check .
+"$M1_VENV/bin/python" -m ruff format --check .
+```
+
+包测试使用 pytest 的 `tmp_path` 创建仓库外临时工作目录，并从子进程环境中移除继承的 `PYTHONPATH`。重新生成锁文件时，先运行 `M1_PIP_CACHE="$(mktemp -d /tmp/watt-profile-pip-tools-cache.XXXXXX)"`，再运行 `PIP_TOOLS_CACHE_DIR="$M1_PIP_CACHE" "$M1_VENV/bin/python" -m piptools compile --extra dev --allow-unsafe --resolver=backtracking --output-file requirements-dev.lock pyproject.toml`。保留环境供 M1-08 使用；之后只用 `rm -rf -- "$M1_VENV" "$M1_PIP_CACHE"` 删除本 shell 精确创建的目录。本次运行的实际临时路径记录在 `development-notes/m1-20261010/M1-01-resources.txt`。使用合成／脱敏数据及隔离临时资源，不连接生产服务，不与已有串口 reader 争用。
 
 八项任务验收全部通过且英中一致后，M1 才完成。分别记录命令、结果、未执行项及重要限制；类型／测试不代表真实数据库原子性或回传通过。
 

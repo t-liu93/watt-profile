@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=69,<81", "wheel>=0.43,<1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "watt-profile"
+version = "0.1.0"
+description = "Independent DSMR P1 protocol and data contracts for Watt Profile"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "pydantic>=2.7,<3",
+    "pyserial>=3.5,<4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pip-tools>=7.4,<8",
+    "pytest>=8.2,<9",
+    "ruff>=0.5,<1",
+    "setuptools>=69,<81",
+    "wheel>=0.43,<1",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
