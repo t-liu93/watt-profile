@@ -50,6 +50,88 @@ services:
       timeout: 3s
       retries: 12
       start_period: 10s
+  server-init:
+    image: watt-profile-server-dev:${WATT_DEV_IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: deploy/server/Dockerfile
+    user: "0:0"
+    network_mode: none
+    entrypoint: ["python", "-c"]
+    command:
+      - |
+        import os, secrets
+        from pathlib import Path
+        os.umask(0o077)
+        root = Path('/credentials')
+        os.chown(root, 10001, 10001)
+        os.chmod(root, 0o700)
+        password = root / 'db-password'
+        if not password.exists():
+            with password.open('x') as stream:
+                stream.write(secrets.token_urlsafe(32) + '\n')
+        values = {
+            'database-url': 'postgresql+psycopg://watt:' + password.read_text().strip() + '@server-db:5432/watt\n',
+            'admin-password': 'testtesttesttest\n',
+        }
+        for name, value in values.items():
+            target = root / name
+            if not target.exists():
+                with target.open('x') as stream:
+                    stream.write(value)
+        for target in root.iterdir():
+            os.chown(target, 10001, 10001)
+            os.chmod(target, 0o600)
+    volumes:
+      - server-credentials:/credentials
+  server-db:
+    image: postgres:17.6-alpine
+    depends_on:
+      server-init:
+        condition: service_completed_successfully
+    environment:
+      POSTGRES_USER: watt
+      POSTGRES_DB: watt
+      POSTGRES_PASSWORD_FILE: /run/credentials/db-password
+    volumes:
+      - server-db-data:/var/lib/postgresql/data
+      - server-credentials:/run/credentials:ro
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U watt -d watt"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+  server:
+    image: watt-profile-server-dev:${WATT_DEV_IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: deploy/server/Dockerfile
+    user: "10001:10001"
+    depends_on:
+      server-db:
+        condition: service_healthy
+    environment:
+      WATT_SERVER_DATABASE_URL_FILE: /run/credentials/database-url
+      WATT_SERVER_ADMIN_USER: admin
+      WATT_SERVER_ADMIN_PASSWORD_FILE: /run/credentials/admin-password
+      WATT_SERVER_PUBLIC_ORIGIN: http://127.0.0.1:${WATT_DEV_SERVER_PORT:-8081}
+      WATT_SERVER_COOKIE_SECURE: "false"
+    ports:
+      - "127.0.0.1:${WATT_DEV_SERVER_PORT:-8081}:8080"
+    volumes:
+      - server-credentials:/run/credentials:ro
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,urllib.request,urllib.parse; origin=os.environ['WATT_SERVER_PUBLIC_ORIGIN']; request=urllib.request.Request('http://127.0.0.1:8080/health/ready',headers={'Host':urllib.parse.urlsplit(origin).netloc}); urllib.request.urlopen(request,timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
 volumes:
   logger-data:
   logger-credentials:
+  server-credentials:
+  server-db-data:

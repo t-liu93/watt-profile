@@ -2,7 +2,7 @@
 
 > **中文** · [English — source of truth](m3.md)
 
-状态：实现进行中，2026-10-12。M3-01–M3-07 实现、检查与独立审查已完成；M3-08–M3-10 及所有者浏览器验收仍待执行。M1、M2 已验收。第 4 节记录服务、HTTP 及浏览器检查；部署仍待执行。
+状态：实现进行中，2026-10-12。M3-01–M3-08 实现、检查与独立审查已完成；M3-09–M3-10 及所有者浏览器验收仍待执行。M1、M2 已验收。第 4 节记录服务、HTTP、浏览器及隔离容器检查；合成恢复和最终集成仍待执行。
 
 ## 1. 目标与 Agent 使用方式
 
@@ -359,7 +359,8 @@ WATT_TEST_POSTGRES=1 PLAYWRIGHT_BROWSERS_PATH=/tmp/watt-m3-run.Qsb5bu/browser /t
 | M3-05 查询/状态/CSV | 22 项真实 PostgreSQL 检查；独立审查与集成检查通过 |
 | M3-06 认证/HTTP | 17 项真实 PostgreSQL 检查；独立审查与集成检查通过 |
 | M3-07 管理页面/Logger JSON | 40 项浏览器/API、18 项兼容检查；独立审查与集成检查通过 |
-| M3-08–M3-10 实现与任务检查 | 待执行 |
+| M3-08 容器交付 | 2 项 Server/Caddy、1 项 Logger Compose/浏览器检查；独立审查与集成检查通过 |
+| M3-09–M3-10 实现与任务检查 | 待执行 |
 | 完整 M1/M2 回归与集成静态/安装包检查 | 待执行 |
 | 真实 PostgreSQL 并发/原子性/CSV 检查 | 任务检查通过；最终集成检查待执行 |
 | 本地 Compose、Caddy 验证、自动浏览器 walkthrough | 待执行 |
@@ -368,3 +369,76 @@ WATT_TEST_POSTGRES=1 PLAYWRIGHT_BROWSERS_PATH=/tmp/watt-m3-run.Qsb5bu/browser /t
 | 公网部署、Logger 上传器/恢复、物理硬件 | M4，不由 M3 声明通过 |
 
 每完成一项，在此同步双语追加实际命令、结果、环境/镜像版本、重要修复、不可用检查和清理证据。设计就绪不等于实现验收。目前已执行上面的基础/存储检查；浏览器、部署及所有者验收仍待执行。
+
+### 容器操作（M3-08）
+
+本机目标为 Linux AMD64。Server 构建使用 `python:3.12.13-slim-bookworm`；两个 Server Compose 使用 `postgres:17.6-alpine`，独立部署使用 `caddy:2.10.2-alpine`。Server 镜像包含已安装包、模板、静态资源和独立迁移链。应用 UID/GID 为 10001。没有数据库端口发布、宿主设备、external 卷或生产设置，保留 PostgreSQL 持久化默认值。开发初始化器以 root、无网络运行，只准备其凭据卷后退出；随机 DB 密码和开发管理员密码均以独占创建方式只生成一次。重启／迁移不重置数据库或轮换文件。应用只读挂载 0700 私有凭据目录，文件为 0600。健康探针连接内部应用 8080 端口，但使用 public origin 的 Host authority，不放宽 Host 检查。PostgreSQL readiness 使用 TCP，避免初始化阶段临时 Unix socket 误报。
+
+从仓库根目录选择未使用的项目／镜像标签和回环端口。确认标签筛选的容器／网络／卷列表及精确镜像列表为空；发现已有资源应停止，不得复用。此示例只启动 Server 依赖，正常 `down` 保留数据库和凭据卷：
+
+```sh
+export WATT_DEV_IMAGE_TAG="watt-m3-owner-$(date +%s)-$$"
+export WATT_DEV_SERVER_PORT=18081
+M3_PROJECT="$WATT_DEV_IMAGE_TAG"
+python3.12 - <<'PORT_CHECK'
+import os, socket
+with socket.socket() as listener:
+    listener.bind(('127.0.0.1', int(os.environ['WATT_DEV_SERVER_PORT'])))
+PORT_CHECK
+docker container ls -aq --filter "label=com.docker.compose.project=$M3_PROJECT"
+docker network ls -q --filter "label=com.docker.compose.project=$M3_PROJECT"
+docker volume ls -q --filter "label=com.docker.compose.project=$M3_PROJECT"
+docker image ls -q "watt-profile-server-dev:$WATT_DEV_IMAGE_TAG"
+docker compose -p "$M3_PROJECT" -f docker-compose.dev.yml up --build -d --wait --wait-timeout 120 server
+```
+
+打开 `http://127.0.0.1:18081`，以 `admin`／`testtesttesttest` 登录空 dashboard。`up logger` 只启动 Logger 和其初始化器，保留 `operator`／`testtesttesttest`，使用 8080 端口（可用 `WATT_DEV_PORT` 覆盖）。两应用的卷和凭据互相独立。停止允许 30 秒；启动／健康检查均有有限等待。通过下列命令验证持久化，重启后重新登录（会话被撤销），检查已有注册站点／读数。初始化器保留已有秘密文件：
+
+```sh
+docker compose -p "$M3_PROJECT" -f docker-compose.dev.yml up -d --force-recreate --wait --wait-timeout 120 server
+docker compose -p "$M3_PROJECT" -f docker-compose.dev.yml down
+docker compose -p "$M3_PROJECT" -f docker-compose.dev.yml up -d --wait --wait-timeout 120 server
+# 仅在此临时项目使用完毕后：
+docker compose -p "$M3_PROJECT" -f docker-compose.dev.yml down --volumes --remove-orphans
+docker image rm "watt-profile-server-dev:$WATT_DEV_IMAGE_TAG"
+```
+
+独立部署由所有者管理。将 `deploy/server/.env.example` 复制为被忽略的 `.env.local`，设置真实域名、管理员用户名和两个绝对私有目录路径。DB 目录包含 `password`；Server 目录包含 `database-url` 和 `admin-password`。目录以 0700 创建；文件使用 umask 0077 独占创建，权限为 0600。生成 URL-safe 随机 DB 密码，并在 `postgresql+psycopg://watt:<password>@server-db:5432/watt` 使用相同值；通过 `python -m watt_profile.cli.server_admin generate-password --output NEW_PATH` 生成管理员密码。Server 目录及文件必须属于 UID/GID 10001；PostgreSQL 入口以 root 读取其独立密码目录。整个私有目录只读绑定，以保留容器内私有父目录。独立部署没有开发密码默认值。所有者授权部署前先审阅解析后的配置：
+
+```sh
+docker compose --env-file deploy/server/.env.local -p OWNER_PROJECT -f deploy/server/compose.yml config
+# 仅限所有者已授权部署；M3 验证未执行：
+docker compose --env-file deploy/server/.env.local -p OWNER_PROJECT -f deploy/server/compose.yml up --build -d --wait --wait-timeout 120
+```
+
+只有 Caddy 发布 80／443；DB 和应用保持内部端口。Caddy data／config 和 DB data 使用持久化项目卷，正常 `down` 保留这些卷。Caddy 将 Host 替换为配置域名，移除不可信 `Forwarded` 和 `X-Forwarded-*` 输入；应用 Uvicorn 设置 `proxy_headers=False`。验证期间未申请公网证书。
+
+若所有者自行管理 HTTP 隧道，需明确将 Caddy 站点标签替换为 `http://YOUR_TUNNEL_HOST`，保留代理块（将 `header_up Host` 设置为 `YOUR_TUNNEL_HOST`），覆盖 Server `WATT_SERVER_PUBLIC_ORIGIN=http://YOUR_TUNNEL_HOST` 和 `WATT_SERVER_COOKIE_SECURE="false"`，将 Caddy 发布端口替换成一个所有者选择的回环 HTTP 映射（如 `127.0.0.1:18082:80`），并只读挂载替代 Caddyfile。必须移除原 80／443 映射，而不是另加端口；Compose 2.24.4+ 的 override 可使用 `ports: !override ["127.0.0.1:18082:80"]`。隧道可达性和访问控制由所有者提供。这是明确的部署替代方案，不是 WireGuard 配置，也不是已验证的公网端点。
+
+真实容器自动化创建并清理其精确唯一项目／镜像，动态选择未占用回环端口，拒绝已存在的标签资源或镜像。它只构建／启动 Server，验证私有文件所有权／权限／只读挂载、readiness／Host 拒绝、安装资源／迁移、真实 HTTP 注册／接收／查询／CSV、重启会话撤销，以及 force recreate 和正常 down／up 后数据与凭据哈希不变。独立部署配置使用合成临时私有文件；Caddy 以 `--network none` 和合成 `.invalid` 域名校验。必须显式选择测试：
+
+```sh
+WATT_TEST_SERVER_COMPOSE=1 WATT_TEST_COMPOSE_PROJECT=watt-m3-08-recheck-1791757501 WATT_DEV_IMAGE_TAG=watt-m3-08-recheck-1791757501 /tmp/watt-m3-run.Qsb5bu/venv/bin/python -m pytest tests/integration/test_server_compose.py -q --tb=short
+# 等效的隔离 Caddy 校验（没有部署／启动／ACME）：
+docker run --rm --network none -e WATT_SERVER_DOMAIN=synthetic.example.invalid -v "$PWD/deploy/server/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.10.2-alpine caddy validate --config /etc/caddy/Caddyfile
+```
+
+2026-10-12，更正后的容器命令 **2 tests passed**，耗时 38.35 秒。精确项目及本次构建的 Server 镜像由 `finally` 删除；共享 PostgreSQL／base／Caddy 镜像和构建缓存保留。初次运行在成功构建／启动后因测试资源路径断言写错而有一项失败；其隔离项目／镜像已先清理，再完成更正与通过。Logger 回归及最终检查在完成后记录如下。
+
+完整既有 Logger Compose／浏览器回归 **1 test passed**，耗时 106.99 秒；使用全新项目 `watt-m2-m3-08-1791757298731173833`、同名标签及动态选择的回环端口 57835。驱动先验证标签资源和精确 Logger 镜像不存在，再以 `try/finally` 清理生命周期执行下列命令（不触碰 Server 项目或其他 Docker 资源）：
+
+```sh
+export WATT_TEST_COMPOSE_PROJECT=watt-m2-m3-08-1791757298731173833
+export WATT_DEV_IMAGE_TAG="$WATT_TEST_COMPOSE_PROJECT"
+export WATT_DEV_PORT=57835
+export PLAYWRIGHT_BROWSERS_PATH=/tmp/watt-m3-run.Qsb5bu/browser
+docker compose -p "$WATT_TEST_COMPOSE_PROJECT" -f docker-compose.dev.yml up --build -d --wait --wait-timeout 120 logger
+/tmp/watt-m3-run.Qsb5bu/venv/bin/python -m pytest tests/integration/test_logger_compose.py -q --tb=short
+# finally，即使失败也执行：
+docker compose -p "$WATT_TEST_COMPOSE_PROJECT" -f docker-compose.dev.yml down --volumes --remove-orphans
+docker image rm "watt-profile-logger-dev:$WATT_DEV_IMAGE_TAG"
+```
+
+全部 M2 浏览器断言保持，并验证未启动 Server 服务。原 Logger `python:3.12-slim` base 标签成功拉取，其运行／构建行为未改变。新拉取的 `python:3.12.13-slim-bookworm`、`python:3.12-slim` 和 `caddy:2.10.2-alpine` 标签保留供后续 M3 使用；预存 `postgres:17.6-alpine` 和共享构建缓存未删除。唯一 Server／Logger 项目的容器、网络、卷及应用标签均已清理。全仓库 `python -m ruff check .`、`python -m ruff format --check .` 和 `git diff --check` 通过。未测试或访问生产服务、公网 ACME、宿主设备或 ARM64 Server。M3-09 demo／恢复和 M3-10 集成验收仍属独立任务。
+
+M3-08 独立审查通过：2 项 Server/Caddy 及完整 Logger Compose/浏览器回归（1 项）。审查自建项目、标签和临时目录已删除。另确认并清理实现自建默认 pytest 目录 `pytest-74`/`pytest-75` 及其 current 符号链接，保留预存目录。合成恢复/最终集成及所有者验收仍待执行。

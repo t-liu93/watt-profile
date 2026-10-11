@@ -38,6 +38,10 @@ Logger 在本地采集 DSMR 5，快照保持 pending；M2 尚未实现上传。�
 
 登录页和 dashboard 默认使用暗色。通过页面顶部按钮切换明暗主题；浏览器存储只保存主题偏好。
 
-`docker-compose.dev.yml` 使用真实解析链路处理合成字节，采用仅用于开发的账号 `operator`／`testtesttesttest`、项目私有可丢弃卷和回环端口（默认 8080，可通过 `WATT_DEV_PORT` 覆盖）。选择唯一 `watt-m2-...` 项目及 `WATT_DEV_IMAGE_TAG`；显式运行 Compose／浏览器测试。它不挂载宿主设备，也不运行服务器服务。
+`docker-compose.dev.yml` 使用真实解析链路处理合成字节，采用仅用于开发的账号 `operator`／`testtesttesttest`、项目私有可丢弃卷和回环端口（默认 8080，可通过 `WATT_DEV_PORT` 覆盖）。选择唯一 `watt-m2-...` 项目及 `WATT_DEV_IMAGE_TAG`；显式运行 Compose／浏览器测试。`up logger` 只启动 Logger 依赖，不挂载宿主设备。
 
 `deploy/logger/compose.yml` 用于独立串口部署，必须提供外部操作员密码文件和显式设备／GID 映射；将[脱敏示例](deploy/logger/.env.example)复制到被忽略的 `.env.local` 并替换占位符。应用 UID/GID 为 10001，数据卷权限为 0700，只读密码文件必须为 0600 且归 UID 10001 所有。受限 root 初始化服务仅准备挂载卷。正常 `down` 保留数据。本机容器运行和 ARM64 构建分别验证，均不代表真实电表验收。
+
+## Server 容器
+
+Server 提供管理员注册、授权批量接收、读数和 CSV 导出；Logger 上传仍属于 M4。隔离开发、独立部署私有文件设置与清理见 [M3 已验证容器操作](docs/milestone/m3_zh.md#容器操作m3-08)。`up server` 只启动其 PostgreSQL／初始化依赖。开发使用 `admin`／`testtesttesttest`、回环端口 8081（可用 `WATT_DEV_SERVER_PORT` 覆盖）及项目私有卷。独立 [Compose](deploy/server/compose.yml) 必须提供所有者管理的秘密目录和域名；只有 Caddy 发布 80／443 端口。正常 `down` 保留数据。

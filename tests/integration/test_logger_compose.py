@@ -37,7 +37,15 @@ def compose():
         ).stdout
 
     configuration = json.loads(run("config", "--format", "json"))
-    assert set(configuration["services"]) == {"logger", "logger-init"}
+    assert set(configuration["services"]) == {
+        "logger",
+        "logger-init",
+        "server",
+        "server-init",
+        "server-db",
+    }
+    assert set(configuration["services"]["logger"]["depends_on"]) == {"logger-init"}
+    assert not run("ps", "--all", "--quiet", "server", "server-init", "server-db").strip()
     logger = configuration["services"]["logger"]
     assert logger["environment"]["WATT_LOGGER_INPUT"] == "synthetic"
     assert logger["user"] == "10001:10001"

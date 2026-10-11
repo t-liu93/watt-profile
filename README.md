@@ -38,6 +38,10 @@ The Logger collects DSMR 5 locally and keeps snapshots pending; upload is not im
 
 The login page and dashboard default to dark mode. Use the header button to switch between light and dark; only the theme preference is saved in browser storage.
 
-`docker-compose.dev.yml` runs synthetic bytes through the real parser with the development-only account `operator` / `testtesttesttest`, a private disposable project volume and loopback port (default 8080, override with `WATT_DEV_PORT`). Choose a unique `watt-m2-...` project and `WATT_DEV_IMAGE_TAG`; run Compose/browser tests explicitly. It attaches no host devices or server services.
+`docker-compose.dev.yml` runs synthetic bytes through the real parser with the development-only account `operator` / `testtesttesttest`, a private disposable project volume and loopback port (default 8080, override with `WATT_DEV_PORT`). Choose a unique `watt-m2-...` project and `WATT_DEV_IMAGE_TAG`; run Compose/browser tests explicitly. `up logger` starts only Logger dependencies and attaches no host devices.
 
 `deploy/logger/compose.yml` is standalone serial deployment with required external operator password file and explicit device/GID mapping; copy [the sanitized example](deploy/logger/.env.example) to ignored `.env.local` and replace its placeholders. Application UID/GID is 10001, the data volume is 0700, the read-only password file must be 0600 and owned by UID 10001. A scoped root initializer prepares only the mounted volume. Normal `down` preserves data. Local container execution and ARM64 build are separate checks; neither claims physical-meter acceptance.
+
+## Server containers
+
+The Server provides administrator registration, authorized batch ingest, readings and CSV export; Logger upload remains M4 work. See [M3 tested container operations](docs/milestone/m3.md#container-operations-m3-08) for isolated development, standalone private-file setup and cleanup. `up server` starts only its PostgreSQL/setup dependencies. Development uses `admin` / `testtesttesttest`, loopback port 8081 (`WATT_DEV_SERVER_PORT` override), and private project volumes. Standalone [Compose](deploy/server/compose.yml) requires owner-managed secret directories and a domain; only Caddy publishes ports 80/443. Normal `down` preserves data.

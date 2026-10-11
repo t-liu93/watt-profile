@@ -1,0 +1,60 @@
+services:
+  server-db:
+    image: postgres:17.6-alpine
+    environment:
+      POSTGRES_USER: watt
+      POSTGRES_DB: watt
+      POSTGRES_PASSWORD_FILE: /run/db-credentials/password
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ${WATT_SERVER_DB_SECRET_DIR:?required private directory}:/run/db-credentials:ro
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U watt -d watt"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+  server:
+    image: watt-profile-server:${WATT_SERVER_IMAGE_TAG:-local}
+    build:
+      context: ../..
+      dockerfile: deploy/server/Dockerfile
+    user: "10001:10001"
+    depends_on:
+      server-db:
+        condition: service_healthy
+    environment:
+      WATT_SERVER_DATABASE_URL_FILE: /run/server-credentials/database-url
+      WATT_SERVER_ADMIN_USER: ${WATT_SERVER_ADMIN_USER:?required administrator username}
+      WATT_SERVER_ADMIN_PASSWORD_FILE: /run/server-credentials/admin-password
+      WATT_SERVER_PUBLIC_ORIGIN: https://${WATT_SERVER_DOMAIN:?required domain}
+      WATT_SERVER_COOKIE_SECURE: "true"
+    volumes:
+      - ${WATT_SERVER_SECRET_DIR:?required private directory}:/run/server-credentials:ro
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,urllib.request,urllib.parse; origin=os.environ['WATT_SERVER_PUBLIC_ORIGIN']; request=urllib.request.Request('http://127.0.0.1:8080/health/ready',headers={'Host':urllib.parse.urlsplit(origin).netloc}); urllib.request.urlopen(request,timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+  caddy:
+    image: caddy:2.10.2-alpine
+    depends_on:
+      server:
+        condition: service_healthy
+    environment:
+      WATT_SERVER_DOMAIN: ${WATT_SERVER_DOMAIN:?required domain}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    stop_grace_period: 30s
+volumes:
+  db-data:
+  caddy-data:
+  caddy-config:
