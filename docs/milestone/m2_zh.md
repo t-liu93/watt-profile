@@ -302,6 +302,8 @@ unset WATT_TEST_COMPOSE_PROJECT
 
 - M2-04：自动检查和全新独立审查通过。`tests/test_logger_sampler.py -q`：5 项通过；独立 sampler/domain 检查共 29 项通过；Ruff 通过。独立探测验证边界尾部归属、无提前快照、同时间接收顺序及归属。测试仅使用纯 mapped reading 和假时间。
 
+- M2-05：自动检查和全新独立审查通过。`tests/test_logger_runtime.py tests/test_p1_probe.py tests/test_logger_sampler.py -q`：44 项通过；独立相关套件：130 项通过；Ruff 通过。三轮修复解决未保存阻断的报告／保留、framer 拒绝报告、实际完成 UTC、原始帧生命周期和 sampler 调用兼容性。假串口覆盖独占 owner、预览取消／退避、延迟边界、drain 响应、故障和关机／重启意图。未打开物理串口设备。
+
 ### 验收记录
 
 | 证据 | 状态 |

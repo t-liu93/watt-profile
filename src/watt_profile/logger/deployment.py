@@ -41,12 +41,20 @@ class DeploymentOperations:
         self.repository = repository
         self.drain = drain
         self.state = repository.load_lifecycle()
+        # Lifecycle transitions need all effective blocks, including failed writes.
+        # Only repository state describes which reasons are actually durable.
+        self.unsaved_blocks: tuple[pure.PersistedBlock, ...] = ()
+
+    def _retain_unsaved_blocks(self, state: pure.Lifecycle) -> pure.Lifecycle:
+        for reason in self.unsaved_blocks:
+            state = pure.block_collection(state, reason).lifecycle
+        return state
 
     def _selected(self) -> UUID | None:
         return self.state.session.descriptor.session_id if self.state.session else None
 
     def _check(self, expected: UUID | None) -> None:
-        persisted = self.repository.load_lifecycle()
+        persisted = self._retain_unsaved_blocks(self.repository.load_lifecycle())
         selected = persisted.session.descriptor.session_id if persisted.session else None
         if expected != selected or expected != self._selected():
             raise ValueError("stale_session")
@@ -81,7 +89,9 @@ class DeploymentOperations:
         return self.repository.save_site(site, edit=True)
 
     def restore_intent(self) -> pure.Transition:
-        self.state = pure.restart(self.repository.load_lifecycle()).lifecycle
+        self.state = pure.restart(
+            self._retain_unsaved_blocks(self.repository.load_lifecycle())
+        ).lifecycle
         return pure.Transition(
             lifecycle=self.state, result="blocked" if self.state.persisted_blocks else "ok"
         )
@@ -127,7 +137,7 @@ class DeploymentOperations:
             self.state = self.repository.commit_deployment_change(selected, result.lifecycle)
         except BaseException:
             if drained:
-                self.state = self.repository.load_lifecycle()
+                self.state = self._retain_unsaved_blocks(self.repository.load_lifecycle())
             raise
         return pure.Transition(lifecycle=self.state, result=result.result)
 
@@ -161,6 +171,9 @@ class DeploymentOperations:
         if result.result == "ok":
             self.state = self.repository.commit_deployment_change(
                 expected_session_id, result.lifecycle
+            )
+            self.unsaved_blocks = tuple(
+                reason for reason in self.unsaved_blocks if reason != "meter_changed"
             )
         return pure.Transition(lifecycle=self.state, result=result.result)
 

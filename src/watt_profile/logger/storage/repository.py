@@ -625,6 +625,20 @@ class LoggerRepository:
                 storage_blocked=bool(state and "storage_full" in state.persisted_blocks),
             )
 
+    def active_session_latest_received_at(self) -> datetime | None:
+        """Current deployment freshness, independent of all-session history."""
+        with self._transaction() as session:
+            installation = self._load_installation(session)
+            state = installation.lifecycle if installation else None
+            if state is None or state.session is None:
+                return None
+            value = session.scalar(
+                select(func.max(db.snapshots.c.received_at)).where(
+                    db.snapshots.c.session_id == str(state.session.descriptor.session_id)
+                )
+            )
+            return TypeAdapter(UtcTime).validate_python(value) if value else None
+
     def list_sessions(self, limit: int = 100) -> tuple[LocalSession, ...]:
         if type(limit) is not int or not 1 <= limit <= 1000:
             raise ValueError("invalid_session_limit")

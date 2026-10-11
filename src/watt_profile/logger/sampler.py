@@ -43,8 +43,23 @@ class WindowSampler:
         self._last_monotonic = monotonic_anchor
         self._candidate: MappedReading | None = None
 
+    @property
+    def next_boundary(self) -> float:
+        """Scheduled boundary of the current window."""
+        return self._anchor + self._interval
+
+    @property
+    def has_candidate(self) -> bool:
+        """Whether a tail remains eligible for scheduled finalization."""
+        return self._candidate is not None
+
     def offer(self, reading: MappedReading, monotonic_received: float) -> tuple[Snapshot, ...]:
-        """Advance elapsed windows, then retain this reading for its window."""
+        """Advance elapsed windows, then retain this reading for its window.
+
+        Call ``advance(monotonic_received, utc_now)`` first when processing is
+        delayed, so finalization uses current UTC while admission keeps its
+        original monotonic receipt time.
+        """
         if not math.isfinite(monotonic_received):
             raise ValueError("invalid_monotonic_time")
         if monotonic_received < self._last_monotonic:
