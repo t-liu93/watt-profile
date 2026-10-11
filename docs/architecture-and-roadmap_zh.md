@@ -2,7 +2,7 @@
 
 > [English](architecture-and-roadmap.md) · **中文**
 
-状态：高层规划基线，2026-10-10 按已确定的 MVP 更新。本文记录系统方向。M1 离线协议／契约／probe 实现已通过独立审查，所有者人工验收待确认；M2–M4 仍待实施。[MVP 路线图](mvp-roadmap_zh.md)定义首版边界、Milestone 和验收检查。
+状态：高层规划基线，2026-10-11 按已确定的 MVP 更新。本文记录系统方向。M1 离线协议／契约／probe 实现已通过独立审查及所有者要求的全新子代理走查，完成验收；M2–M4 仍待实施。各应用 Milestone 须按路线图同步交付容器构建、Compose 文件及本地浏览器走查。[MVP 路线图](mvp-roadmap_zh.md)定义首版边界、Milestone 和验收检查。
 
 ## 目标与边界
 
