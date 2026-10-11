@@ -2,7 +2,7 @@
 
 > **中文** · [English — source of truth](m3.md)
 
-状态：实现进行中，2026-10-11。M3-01–M3-04 实现、检查与独立审查已完成；M3-05–M3-10 及所有者浏览器验收仍待执行。M1、M2 已验收。第 4 节记录已完成的基础/存储检查，不代表 HTTP 服务端已经可用。
+状态：实现进行中，2026-10-11。M3-01–M3-05 实现、检查与独立审查已完成；M3-06–M3-10 及所有者浏览器验收仍待执行。M1、M2 已验收。第 4 节记录已完成的基础/存储检查，不代表 HTTP 服务端已经可用。
 
 ## 1. 目标与 Agent 使用方式
 
@@ -291,6 +291,16 @@ env -u WATT_SERVER_DATABASE_URL -u WATT_SERVER_DATABASE_URL_FILE WATT_TEST_POSTG
 
 集成修复：JSON 序列化前重验内部批次/Snapshot 的 Python 类型，关闭可能包含输入的 serializer warning。修复后接收/上传测试 **115 项通过**，保留固定错误分类、Decimal scale/null/数组顺序和字节限制，同时拒绝构造的 float 且无写入；Ruff 通过，自建资源已删除。
 
+### M3-05 查询/状态/CSV 检查
+
+已实现共用严格筛选、完整 canonical Snapshot 查询/详情、稳定 total/items 分页、站点/设备状态和可显式关闭的 CSV 流。导出采用独立只读 REPEATABLE READ 事务、30 分钟语句超时、服务器游标每批最多读取 500 行及进程级最多两个导出。
+
+```sh
+WATT_TEST_POSTGRES=1 /tmp/watt-m3-run.Qsb5bu/venv/bin/python -m pytest tests/test_server_queries.py tests/test_server_export.py -q --basetemp=/tmp/watt-m3-05-pytest -o cache_dir=/tmp/watt-m3-05-cache
+```
+
+结果：**22 passed**，Ruff 通过（93 文件）。覆盖 UTC 边界、同时间/跨设备排序、并发插入时稳定快照、18 项指标/null/scale 与嵌套 JSON、完整查询/导出等价、空结果仅表头、有限 fetch、名额分配/释放、首次 next 前关闭、超时与异常清理。真实阻塞 FETCH 取消、单个 stream 清理失败后 manager 继续清理均通过。Fixture 自建容器/卷/私有目录和任务缓存已删除。独立审查与集成检查通过；未增加 HTTP/HTML。
+
 ### 后续计划自动化入口
 
 在 `/tmp` 创建唯一 Python 3.12 venv，安装 `requirements-dev.lock`，再执行 `pip install --no-build-isolation --no-deps -e .`。使用临时 cache/data 及上面已测试的 M3-01 PostgreSQL launcher，不得使用生产或继承的部署连接设置。浏览器测试需要开发 Chromium。M3-08/09 必须在验收前补齐测试过的容器/恢复命令。以下后续入口在对应任务记录证据前仍属于计划。
@@ -322,9 +332,10 @@ env -u WATT_SERVER_DATABASE_URL -u WATT_SERVER_DATABASE_URL_FILE WATT_TEST_POSTG
 | M3-02 schema/仓储 | 32 项存储检查、74 项定向检查；独立审查与集成检查通过 |
 | M3-03 注册/授权 | 52 项注册、84 项定向检查；独立审查与集成检查通过 |
 | M3-04 原子接收 | 115 项接收/上传检查；独立审查与集成检查通过 |
-| M3-05–M3-10 实现与任务检查 | 待执行 |
+| M3-05 查询/状态/CSV | 22 项真实 PostgreSQL 检查；独立审查与集成检查通过 |
+| M3-06–M3-10 实现与任务检查 | 待执行 |
 | 完整 M1/M2 回归与集成静态/安装包检查 | 待执行 |
-| 真实 PostgreSQL 并发/原子性/CSV 检查 | 待执行 |
+| 真实 PostgreSQL 并发/原子性/CSV 检查 | 任务检查通过；最终集成检查待执行 |
 | 本地 Compose、Caddy 验证、自动浏览器 walkthrough | 待执行 |
 | 隔离备份恢复与资源清理 | 待执行 |
 | 所有者浏览器 walkthrough 验收 | 待执行 |
