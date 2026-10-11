@@ -7,6 +7,10 @@ import secrets
 import stat
 from pathlib import Path
 
+from sqlalchemy import Engine
+
+from watt_profile.server.settings import ServerSettings
+
 
 def set_private_umask() -> None:
     os.umask(0o077)
@@ -28,3 +32,16 @@ def create_password_file(path: Path) -> str:
     finally:
         os.close(descriptor)
     return password
+
+
+def initialize_storage(settings: ServerSettings) -> Engine:
+    """Validate settings first, then upgrade before exposing a usable pool."""
+    from watt_profile.server.storage.database import create_database, migrate
+
+    engine = create_database(settings.database_url)
+    try:
+        migrate(engine)
+    except BaseException:
+        engine.dispose()
+        raise
+    return engine

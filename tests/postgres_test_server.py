@@ -102,7 +102,18 @@ def start_postgres_test_server() -> PostgresTestServer:
             if state != "true":
                 raise RuntimeError("PostgreSQL test container exited before becoming ready")
             ready = subprocess.run(
-                ["docker", "exec", name, "pg_isready", "-U", "watt_test", "-d", "watt_test"],
+                [
+                    "docker",
+                    "exec",
+                    name,
+                    "pg_isready",
+                    "-h",
+                    "127.0.0.1",
+                    "-U",
+                    "watt_test",
+                    "-d",
+                    "watt_test",
+                ],
                 capture_output=True,
                 text=True,
                 timeout=5,

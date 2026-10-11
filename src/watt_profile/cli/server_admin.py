@@ -6,7 +6,11 @@ import argparse
 import sys
 from pathlib import Path
 
-from watt_profile.server.bootstrap import create_password_file, set_private_umask
+from watt_profile.server.bootstrap import (
+    create_password_file,
+    initialize_storage,
+    set_private_umask,
+)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -30,8 +34,16 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print(value)
         return 0
-    print("Server database migrations are not implemented yet", file=sys.stderr)
-    return 2
+    from watt_profile.server.settings import ServerSettings, SettingsError
+    from watt_profile.server.storage.database import MigrationError
+
+    try:
+        engine = initialize_storage(ServerSettings.from_env())
+    except (SettingsError, MigrationError):
+        print("unable to migrate Server database", file=sys.stderr)
+        return 1
+    engine.dispose()
+    return 0
 
 
 if __name__ == "__main__":  # pragma: no cover

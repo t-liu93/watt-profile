@@ -2,7 +2,7 @@
 
 > **中文** · [English — source of truth](m3.md)
 
-状态：实现进行中，2026-10-11。M3-01 实现、检查与独立审查已完成；M3-02–M3-10 及所有者浏览器验收仍待执行。M1、M2 已验收。第 4 节仅记录已完成的基础检查，不代表 HTTP 服务端已经可用。
+状态：实现进行中，2026-10-11。M3-01–M3-02 实现、检查与独立审查已完成；M3-03–M3-10 及所有者浏览器验收仍待执行。M1、M2 已验收。第 4 节记录已完成的基础/存储检查，不代表 HTTP 服务端已经可用。
 
 ## 1. 目标与 Agent 使用方式
 
@@ -253,7 +253,17 @@ print('Isolated PostgreSQL query and private-directory cleanup passed')
 PY
 ```
 
-Launcher 要求 `WATT_TEST_POSTGRES=1`，拒绝环境中的 `WATT_SERVER_DATABASE_URL`，从不读取部署 URL 文件。每次调用创建唯一 `watt-m3-test-...` 容器，使用 `postgres:17.6-alpine`、匿名数据卷、随机且仅 loopback 的端口，以及含 0600 URL 文件的私有临时目录。清理仅删除该容器、其卷和目录。任务测试验证目录和卷删除；示例验证查询成功和目录删除。未使用已有数据库或部署资源。M3-02 的 schema、迁移及数据库检查仍待执行。
+Launcher 要求 `WATT_TEST_POSTGRES=1`，拒绝环境中的 `WATT_SERVER_DATABASE_URL`，从不读取部署 URL 文件。每次调用创建唯一 `watt-m3-test-...` 容器，使用 `postgres:17.6-alpine`、匿名数据卷、随机且仅 loopback 的端口，以及含 0600 URL 文件的私有临时目录。清理仅删除该容器、其卷和目录。任务测试验证目录和卷删除；示例验证查询成功和目录删除。未使用已有数据库或部署资源。M3-02 的检查结果记录在下方。
+
+### M3-02 schema 与仓储检查
+
+已实现独立 `server_0001`、M1 C5 PostgreSQL 全列/约束/索引、有限连接池和事务局部设置、advisory 迁移锁、未知版本拒绝、bootstrap/admin 迁移及 typed 存储基础。测试覆盖新建/无操作/失败/并发迁移、直接 SQL 约束/复合归属、canonical/Decimal/null/hash/投影往返与回滚。Launcher readiness 已改为 TCP，防止 PostgreSQL 临时初始化服务器提前通过检测。
+
+```sh
+WATT_TEST_POSTGRES=1 PYTHONDONTWRITEBYTECODE=1 /tmp/watt-m3-run.Qsb5bu/venv/bin/python -m pytest tests/test_server_storage.py tests/test_server_bootstrap.py tests/test_package.py -q -o cache_dir=/tmp/watt-m3-run.Qsb5bu/pytest-cache --basetemp=/tmp/watt-m3-run.Qsb5bu/m3-02-integration
+```
+
+结果：**74 passed**（32 项存储及 42 项基础/打包），Python 3.12.13/PostgreSQL 17.6。实现阶段另执行了非浏览器/非 Compose 回归：**424 passed**。Ruff 与 diff 检查通过。缺少 DB opt-in 时在连接前拒绝。Fixture 清理核验了自己的容器、匿名卷和私有目录已删除；未使用预存资源。独立审查与集成检查通过；M3-03 及后续仍待执行。
 
 ### 后续计划自动化入口
 
@@ -283,7 +293,8 @@ Launcher 要求 `WATT_TEST_POSTGRES=1`，拒绝环境中的 `WATT_SERVER_DATABAS
 | --- | --- |
 | 双语设计与任务边界 | 已在本文定义 |
 | M3-01 基础实现与任务检查 | 42 passed；Ruff、安装包检查通过；独立审查与集成检查通过 |
-| M3-02–M3-10 实现与任务检查 | 待执行 |
+| M3-02 schema/仓储 | 32 项存储检查、74 项定向检查；独立审查与集成检查通过 |
+| M3-03–M3-10 实现与任务检查 | 待执行 |
 | 完整 M1/M2 回归与集成静态/安装包检查 | 待执行 |
 | 真实 PostgreSQL 并发/原子性/CSV 检查 | 待执行 |
 | 本地 Compose、Caddy 验证、自动浏览器 walkthrough | 待执行 |
@@ -291,4 +302,4 @@ Launcher 要求 `WATT_TEST_POSTGRES=1`，拒绝环境中的 `WATT_SERVER_DATABAS
 | 所有者浏览器 walkthrough 验收 | 待执行 |
 | 公网部署、Logger 上传器/恢复、物理硬件 | M4，不由 M3 声明通过 |
 
-每完成一项，在此同步双语追加实际命令、结果、环境/镜像版本、重要修复、不可用检查和清理证据。设计就绪不等于实现验收。目前仅执行上面的 M3-01 基础检查；浏览器、部署及所有者验收仍待执行。
+每完成一项，在此同步双语追加实际命令、结果、环境/镜像版本、重要修复、不可用检查和清理证据。设计就绪不等于实现验收。目前已执行上面的基础/存储检查；浏览器、部署及所有者验收仍待执行。
