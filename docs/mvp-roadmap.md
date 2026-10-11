@@ -2,7 +2,7 @@
 
 > **English — source of truth** · [中文](mvp-roadmap_zh.md)
 
-Status: updated 2026-10-11. M1 is accepted following offline checks, independent review and a fresh-agent walkthrough requested by the owner. M2 implementation is in progress; M3–M4 remain planned. The [M1 completion record](milestone/m1.md#4-checks-and-completion-record) contains verification evidence and limits.
+Status: updated 2026-10-11. M1 is accepted following offline checks, independent review and a fresh-agent walkthrough requested by the owner. M2 implementation, independent review and automated offline/Compose acceptance are complete; the owner accepted the manual walkthrough on 2026-10-11. M3–M4 remain planned. The [M1 completion record](milestone/m1.md#4-checks-and-completion-record) contains verification evidence and limits.
 
 This roadmap defines the first usable release. See the [high-level architecture](architecture-and-roadmap.md) for the system direction and the [protocol handover](home-automation-energy-handover.md) for reusable source code and its limitations.
 
@@ -75,7 +75,7 @@ The [M1 contracts](milestone/m1.md) fix the ingest endpoint, payload schema, lim
 
 ## 4. Milestones and acceptance
 
-Advance in order: **M1 → M2 → M3 → M4**. Finish each milestone's acceptance checks before advancing to its dependent work. Split implementation into small task cards with boundaries, acceptance criteria, and checks before starting that milestone; this roadmap does not itself activate delegated orchestration. Each milestone uses one English document and its Chinese mirror under `docs/milestone/`; the [M1 document](milestone/m1.md) contains its design, contracts and eight atomic task sections. The [M2 design](milestone/m2.md) defines the standalone Logger contracts and ten ordered atomic tasks; implementation is in progress; acceptance remains pending.
+Advance in order: **M1 → M2 → M3 → M4**. Finish each milestone's acceptance checks before advancing to its dependent work. Split implementation into small task cards with boundaries, acceptance criteria, and checks before starting that milestone; this roadmap does not itself activate delegated orchestration. Each milestone uses one English document and its Chinese mirror under `docs/milestone/`; the [M1 document](milestone/m1.md) contains its design, contracts and eight atomic task sections. The [M2 design](milestone/m2.md) defines the standalone Logger contracts and ten ordered atomic tasks; implementation and automated offline acceptance are complete; the owner accepted the manual walkthrough on 2026-10-11.
 
 | Milestone | Deliverable | Acceptance | Estimate |
 | --- | --- | --- | --- |

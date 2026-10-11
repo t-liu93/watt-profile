@@ -2,7 +2,7 @@
 
 > [English — source of truth](m2.md) · **中文**
 
-状态：实施中，2026-10-11。M2-01–M2-09 已验收；M2-10 仍待完成。第 4 节记录任务证据；Milestone 验收仍待完成。
+状态：已验收，2026-10-11。M2-01–M2-10 已通过自动检查及全新独立审查。所需离线验收和自动本地 Compose 浏览器走查通过；所有者已于 2026-10-11 确认本轮人工走查通过。证据及限制见第 4 节。
 
 ## 1. 目标与 agent 使用方式
 
@@ -157,7 +157,7 @@ Cookie 为 `watt_logger_session`，HttpOnly、SameSite=Lax、path `/`，Secure �
 
 交付 `deploy/logger/Dockerfile`、`deploy/logger/compose.yml`、无真实凭据的受版本管理配置示例，以及含 `logger` 服务的根目录 `docker-compose.dev.yml`。构建支持本地架构及 Linux ARM64 的 Python 3.12 slim 镜像。运行时使用固定 UID／GID 10001 的非 root 用户并记录说明；职责受限的卷初始化服务只准备其挂载数据卷的属主后退出，不接触串口。应用不以 privileged 运行。真实串口部署显式映射设备到 `/dev/p1` 并配置补充设备 GID，不映射整个 `/dev`。说明如何让应用 UID 读取密码文件而不开放给所有用户。
 
-开发配置：合成源、`127.0.0.1:8080:8080`、可丢弃的项目数据卷，不映射宿主串口，不含服务器／PostgreSQL，不用 external volume。仅开发设置服务在私有项目卷创建明确记录的合成账号 `operator`／`watt-profile-dev-only` 的密码文件。独立部署不得复用该默认账号／设置。根 Compose 保持可供 M3 扩展服务。独立 Compose 使用 serial 模式，要求密码文件和设备／GID 变量，正常 down／重建保留数据卷。配置 readiness 健康检查及 `stop_grace_period: 30s`。
+开发配置：合成源、`127.0.0.1:8080:8080`、可丢弃的项目数据卷，不映射宿主串口，不含服务器／PostgreSQL，不用 external volume。仅开发设置服务在私有项目卷创建明确记录的合成账号 `operator`／`testtesttesttest` 的密码文件。独立部署不得复用该默认账号／设置。根 Compose 保持可供 M3 扩展服务。独立 Compose 使用 serial 模式，要求密码文件和设备／GID 变量，正常 down／重建保留数据卷。配置 readiness 健康检查及 `stop_grace_period: 30s`。
 
 ## 3. 原子实现任务
 
@@ -261,7 +261,7 @@ python -m pytest tests/browser/test_logger_ui.py -q
 
 ### 容器操作（M2-09）
 
-显式集成 harness 连接全新可丢弃开发项目，验证登录／预览、真实合成采集、已安装模板／静态资源、UID/GID、就绪检查，以及应用重建后的身份和记录字节保留。它不会启动项目或删除卷。仅通过以下显式路径运行。使用未被占用的项目和回环端口；harness 拒绝缺失或无效的 `WATT_TEST_COMPOSE_PROJECT`（非空 `watt-m2-` 前缀）。开发账号为 `operator`／`watt-profile-dev-only`，密码仅存在于项目私有凭据卷。没有宿主设备、服务器或外部卷。
+显式集成 harness 连接全新可丢弃开发项目，验证登录／预览、真实合成采集、已安装模板／静态资源、UID/GID、就绪检查，以及应用重建后的身份和记录字节保留。它不会启动项目或删除卷。仅通过以下显式路径运行。使用未被占用的项目和回环端口；harness 拒绝缺失或无效的 `WATT_TEST_COMPOSE_PROJECT`（非空 `watt-m2-` 前缀）。开发账号为 `operator`／`testtesttesttest`，密码仅存在于项目私有凭据卷。没有宿主设备、服务器或外部卷。
 
 ```bash
 export WATT_TEST_COMPOSE_PROJECT="watt-m2-$(date +%s)-$$"
@@ -323,7 +323,7 @@ docker compose --env-file deploy/logger/.env.local -p watt-logger -f deploy/logg
 
 ### 计划浏览器走查
 
-打开 `http://127.0.0.1:8080`，使用开发账号 `operator`／`watt-profile-dev-only` 登录，确认合成输入和不上传标识。仅使用虚构现场元数据。
+打开 `http://127.0.0.1:8080`，使用开发账号 `operator`／`testtesttesttest` 登录，确认合成输入和不上传标识。仅使用虚构现场元数据。
 
 1. 未创建现场时预览，显示脱敏读数且不生成会话／落盘快照。创建现场 A，创建暂停部署，服务器 origin 留空，不要求再次预览即可开始。
 2. 等待至少 25 秒。核对当前会话新鲜落盘时间、正数 pending 及单位／null。复制注册信息，确认普通状态和日志无 Token。
@@ -352,18 +352,52 @@ docker compose --env-file deploy/logger/.env.local -p watt-logger -f deploy/logg
 
 - M2-08：自动检查和全新独立审查通过。显式浏览器验收 5 项通过；API 25 项通过；安装资源 1 项通过；额外独立浏览器检查通过；Ruff 通过。一轮提交前集成修复使轮询中的 session ID DOM 读取可重试／原子化，并保证浏览器收尾；保留全部 UI 断言。检查覆盖首次离线设置、可选预览、指标／空值、生命周期／确认、当前时间／全局积压、注册隐私／复制后备、分页／清理保护、阻断、到期／忙碌／存储错误、两秒非重叠轮询及刷新不重放。默认选择跳过浏览器测试，不启动服务。测试只使用临时 loopback 应用、凭证／数据库及假串口。
 
-- M2-09：自动检查和全新独立审查通过。Synthetic／API／安装包检查 29 项通过；显式 Compose 验收 1 项通过；独立 synthetic 检查 3 项、Compose 检查 1 项通过；Ruff 通过。使用专用临时 BuildKit builder 成功构建 AMD64 和 Linux ARM64 镜像，仅实际运行 AMD64。两个独立临时 synthetic 项目验证真实解析、安装后的模板／迁移、readiness、UID/GID 10001、私有卷、回环绑定、无主机设备，以及重建后身份／Token 摘要／规范记录保持。无需修复轮次；未声称服务器、上传或硬件验收。编排器在 M2-10 中负责清理这些确切临时资源。
+- M2-09：自动检查和全新独立审查通过。Synthetic／API／安装包检查 29 项通过；显式 Compose 验收 1 项通过；独立 synthetic 检查 3 项、Compose 检查 1 项通过；Ruff 通过。使用专用临时 BuildKit builder 成功构建 AMD64 和 Linux ARM64 镜像，仅实际运行 AMD64。两个独立临时 synthetic 项目验证真实解析、安装后的模板／迁移、readiness、UID/GID 10001、私有卷、回环绑定、无主机设备，以及重建后身份／Token 摘要／规范记录保持。无需修复轮次；未声称服务器、上传或硬件验收。这些确切临时资源已在 M2-10 后清理。
+
+### 最终离线检查（M2-10）
+
+2026-10-11 在 Linux x86_64、Python 3.12、Docker 29.8、Compose 5.5.1、Chromium 153.0.8010.12（Playwright 1.63）执行。`$M2_TMP` 为本轮新建的 `/tmp/watt-profile-m2-resume.OnCmvF`，包含虚拟环境、`TMPDIR`、浏览器、全部 pytest basetemp 和缓存。配置、数据库、操作员凭证、备份与恢复目录全部临时且使用合成数据。Wheel 验证在临时源码副本中构建，并在仓库外检查安装资源。
+
+```bash
+export TMPDIR="$M2_TMP/tmp" PYTHONDONTWRITEBYTECODE=1
+export PIP_CACHE_DIR="$M2_TMP/tmp/pip-cache" RUFF_CACHE_DIR="$M2_TMP/tmp/ruff"
+export PLAYWRIGHT_BROWSERS_PATH="$M2_TMP/browsers"
+PYTHON="$M2_TMP/venv/bin/python"
+"$PYTHON" -m pytest tests/test_m2_pipeline.py -q
+"$PYTHON" -m pytest tests --ignore=tests/browser --ignore=tests/integration -q \
+  -p no:cacheprovider --basetemp="$M2_TMP/tmp/full-m2-10"
+"$PYTHON" -m pytest tests/browser/test_logger_ui.py -q \
+  -p no:cacheprovider --basetemp="$M2_TMP/tmp/browser-m2-10"
+"$PYTHON" -m ruff check .
+"$PYTHON" -m ruff format --check .
+# 调用者确认项目名和端口未使用后，先创建全新 synthetic 项目。
+WATT_TEST_COMPOSE_PROJECT=watt-m2-oncmvf-m210-fix01 WATT_DEV_PORT=54430 \
+  WATT_DEV_IMAGE_TAG=watt-m2-oncmvf "$PYTHON" -m pytest \
+  tests/integration/test_logger_compose.py -q
+```
+
+结果：贯通检查 **3 项通过**；完整 M1／M2 离线回归 **351 项通过**；显式浏览器检查 **5 项通过**；Ruff lint 和格式检查通过（64 文件）；编排器补充贯通／安装包检查 **4 项通过**；完整 Compose 浏览器走查 **1 项通过**（106.88 秒）。默认测试不启动 Compose 或浏览器。贯通测试即使保存服务器 origin 也禁止 socket 外连，输入真实合成 telegram 字节，对比重启和备份／恢复前后的规范快照字节／ID，并验证现场复用和清理保护 pending。Compose 走查验证首次 preview、配置、采集／暂停／完成、A→B→A、注册隐私／复制后备、开启／暂停意图下的重建、私有非 root 卷、pending 保护，以及不启动恢复 reader 的备份／恢复。
+
+使用专用 builder `watt-m2-oncmvf-builder` 完成最终双目标构建：`docker buildx build --builder ... --platform linux/amd64 --load -t watt-profile-logger-dev:watt-m2-oncmvf ...` 和 `--platform linux/arm64 --output=type=cacheonly --metadata-file ...`。仅 AMD64 本机实际运行。ARM64 使用 BuildKit 内部模拟器，没有安装宿主 binfmt 或切换默认 builder。构建 context 是不含 Git、过程报告或凭证的临时源码副本。隔离 HTTP／asyncio／browser 检查因文件系统沙箱默认线程池收尾挂起而在沙箱外运行，未连接生产服务／设备／数据。临时项目均明确限定；最终独立 review 通过，全部自有 Docker 资源已删除。所有者已于 2026-10-11 独立确认合成环境人工走查通过，包括暗色主题和维护页列宽修正。真实硬件、Pi 容量及网络上传验收仍属 M4。
+
+- M2-10：自动检查和全新独立审查通过。独立完整回归 351 项、贯通检查 3 项、浏览器 5 项、完整 Compose 浏览器走查 1 项（107.05 秒）通过；Ruff 和双构建目标通过。一轮提交前集成修复将 drain 相关断言设置为有上限的 15 秒，覆盖合法十秒尾窗和两秒轮询，不改产品行为或删除断言。初始实现提交已包含该修复。中文总结和临时环境人工走查仅保存在被忽略的 `development-notes/m2-20261011/`。
+
+清理已核实五个自有项目（`watt-m2-oncmvf-m209`、`watt-m2-oncmvf-m209-review`、`watt-m2-oncmvf-m210`、`watt-m2-oncmvf-m210-fix01`、`watt-m2-oncmvf-m210-review`）、其容器／卷／网络、唯一开发镜像及先前自有镜像、`watt-m2-oncmvf-builder` 和 state 卷均不存在。本轮自建临时目录在封存本地 commit／报告证据后、最终交付时移除。未执行全局 prune、默认 builder 变更、既有资源删除、push 或生产部署。共享基础镜像缓存保留。只保留两份被忽略的中文所有者报告。
 
 ### 验收记录
 
 | 证据 | 状态 |
 | --- | --- |
-| M2-01–M2-10 实现及各项检查 | 待执行 |
-| 完整 M1／M2 回归、Ruff 和安装分发包 | 待执行 |
-| 浏览器检查及本地 Compose 走查 | 待执行 |
-| 本地镜像运行及 Linux ARM64 镜像构建 | 待执行 |
-| 备份／恢复、持久化、故障恢复及资源清理 | 待执行 |
+| M2-01–M2-10 实现及各项检查 | 自动检查与独立审查通过 |
+| 完整 M1／M2 回归、Ruff 和安装分发包 | 通过：351 项全套回归、Ruff 及临时安装 wheel 验证 |
+| 浏览器检查及本地 Compose 走查 | 通过：5 项浏览器及完整 Compose 走查；所有者人工走查于 2026-10-11 验收通过 |
+| 本地镜像运行及 Linux ARM64 镜像构建 | 通过：AMD64 构建／运行；ARM64 仅构建 |
+| 备份／恢复、持久化、故障恢复及资源清理 | 临时自动检查通过；精确自有资源清理已验证 |
 | 物理电表／线缆、Pi 4 1 GB 和 Pi 3B+、持续负载／磁盘写入／四周容量 | 留待 M4；不作为 M2 已通过声明 |
 | 真实上传、服务器确认及端到端丢失／重试恢复 | 留待 M4；M2 存储原语检查不等于网络验收 |
 
-实施后以实际命令／结果和相关 commit／环境引用替换待执行项，保留真实限制。M2 验收不代表 M3／M4 或多周现场观察完成。
+以上证据记录实际命令／结果与环境引用；所有者人工验收独立记录。M2 验收不代表 M3／M4 或多周现场观察完成。
+
+所有者于 2026-10-11 确认临时合成环境浏览器走查通过：登录／登出、预览、采集／暂停／恢复、开启／暂停意图下重建、完成确认、A/B 切换和复用、注册信息隐私及维护保护。反馈新增可记忆的明暗主题并修正 checkbox／维护表格列宽。CLI 备份／恢复及故障路径沿用自动验收证据；不声称所有者单独完成硬件或备份人工走查。
+
+整合所有者反馈后再次通过最终检查：351 项离线回归、5 项浏览器检查、1 项完整 Compose 走查（107.02 秒）、Ruff lint／格式和 diff 空白检查。最终 Compose 检查使用全新可丢弃项目。随后精确清理所有者走查项目、所属卷／网络、专用 builder／状态卷、已确认归属的测试镜像及临时源码副本；未改动其他项目和生产资源。

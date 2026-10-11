@@ -1,13 +1,33 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 
 def test_installed_wheel_includes_logger_resources(tmp_path: Path) -> None:
-    checkout = Path(__file__).resolve().parents[1]
+    # setuptools writes build/ and egg-info beside the project being built.
+    # Keep those side effects in the disposable test directory too.
+    checkout = tmp_path / "checkout"
+    shutil.copytree(
+        Path(__file__).resolve().parents[1],
+        checkout,
+        ignore=shutil.ignore_patterns(
+            ".git",
+            ".venv",
+            "__pycache__",
+            "*.egg-info",
+            "build",
+            "development-notes",
+            ".pytest_cache",
+            ".ruff_cache",
+            ".env*",
+            "*.secret",
+            "*.sqlite3*",
+        ),
+    )
     wheel_dir = tmp_path / "wheels"
     wheel_dir.mkdir()
     subprocess.run(
