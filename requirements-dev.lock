@@ -63,6 +63,10 @@ playwright==1.63.0
     # via watt-profile (pyproject.toml)
 pluggy==1.6.0
     # via pytest
+psycopg[binary]==3.3.6
+    # via watt-profile (pyproject.toml)
+psycopg-binary==3.3.6
+    # via psycopg
 pydantic==2.14.0
     # via
     #   fastapi
@@ -95,6 +99,7 @@ typing-extensions==4.16.0
     #   anyio
     #   fastapi
     #   opentelemetry-api
+    #   psycopg
     #   pydantic
     #   pydantic-core
     #   pyee

@@ -30,6 +30,10 @@ markupsafe==3.0.4
     #   mako
 opentelemetry-api==1.45.1
     # via fastapi
+psycopg[binary]==3.3.6
+    # via watt-profile (pyproject.toml)
+psycopg-binary==3.3.6
+    # via psycopg
 pydantic==2.14.0
     # via
     #   fastapi
@@ -50,6 +54,7 @@ typing-extensions==4.16.0
     #   anyio
     #   fastapi
     #   opentelemetry-api
+    #   psycopg
     #   pydantic
     #   pydantic-core
     #   sqlalchemy

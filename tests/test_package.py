@@ -87,6 +87,12 @@ assert root.joinpath('logger/templates/index.html').is_file()
 assert root.joinpath('logger/static/logger.css').is_file()
 assert root.joinpath('logger/static/logger.js').is_file()
 assert root.joinpath('logger/storage/migrations/__init__.py').is_file()
+assert root.joinpath('server/__init__.py').is_file()
+assert root.joinpath('server/settings.py').is_file()
+assert root.joinpath('server/storage/migrations/__init__.py').is_file()
+assert root.joinpath('server/templates/base.html').is_file()
+assert root.joinpath('server/static/server.css').is_file()
+import watt_profile.server
 print(root)
 """
     result = subprocess.run(

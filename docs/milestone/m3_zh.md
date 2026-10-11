@@ -2,13 +2,13 @@
 
 > **中文** · [English — source of truth](m3.md)
 
-状态：设计就绪，2026-10-11。M3-01–M3-10 均为计划；实现、检查及浏览器验收尚未执行。M1、M2 已验收。第 4 节是未来的验收记录，不是服务端已经可用的证据。
+状态：实现进行中，2026-10-11。M3-01 实现、检查与独立审查已完成；M3-02–M3-10 及所有者浏览器验收仍待执行。M1、M2 已验收。第 4 节仅记录已完成的基础检查，不代表 HTTP 服务端已经可用。
 
 ## 1. 目标与 Agent 使用方式
 
 交付可独立部署的 Centralized Server：管理员登录、粘贴 Logger 注册信息、站点/设备/凭据/授权管理、经授权的原子批量接收、分别展示联系与读数状态、筛选查询及完整 CSV 导出。包含 PostgreSQL、Caddy、容器、隔离合成验证、备份恢复说明和浏览器 walkthrough。**Logger 上传器及集成交付恢复仍属于 M4。**
 
-向 Agent 提供本文和任务 ID。实现前阅读 [Agent Guide](../../AGENTS_zh.md)、相关 [M1 契约](m1_zh.md)、[M2 设计](m2_zh.md)及当前源码。[MVP roadmap](../mvp-roadmap_zh.md)决定范围。按 M3-01 至 M3-10 顺序推进，依赖验收后才进入下一项；每项包含自己的测试。本文不启动委派，也不授权 Git 操作。所有新增路径、命令及测试入口都是**计划交付物**，不是现有能力。
+向 Agent 提供本文和任务 ID。实现前阅读 [Agent Guide](../../AGENTS_zh.md)、相关 [M1 契约](m1_zh.md)、[M2 设计](m2_zh.md)及当前源码。[MVP roadmap](../mvp-roadmap_zh.md)决定范围。按 M3-01 至 M3-10 顺序推进，依赖验收后才进入下一项；每项包含自己的测试。本文不启动委派，也不授权 Git 操作。M3-01 能力记录于第 4 节；其余新增路径、命令及测试入口仍是**计划交付物**。
 
 保留 M1 领域/上传类型、规范编码及身份语义。实现 M1 C5 的 PostgreSQL 规范，不复制 Logger 的 SQLite DDL。Logger 唯一产品变化是结构化注册摘要复制，并附带回归检查。设计、任务卡、操作说明和验收证据集中于本文及英文镜像，同步更新；不另建里程碑设计或验收文件。
 
@@ -216,9 +216,48 @@ CSV 使用无 BOM 的 UTF-8、逗号分隔、CRLF 行和标准 CSV 引号，固�
 
 ## 4. 检查与完成记录
 
-### 计划自动化入口
+### 已测试的 M3-01 基础与 PostgreSQL launcher
 
-在 `/tmp` 创建唯一 Python 3.12 venv，安装 `requirements-dev.lock`，再执行 `pip install --no-build-isolation --no-deps -e .`。使用临时 cache/data 及显式 M3-01 PostgreSQL launcher，不得使用生产或继承的部署连接设置。浏览器测试需要开发 Chromium。M3-01 必须在 M3-02 前记录精确 launcher 用法；M3-08/09 必须在验收前补齐测试过的容器/恢复命令。不得宣称以下示意入口今天已经可运行。
+在仓库根目录运行，Docker 必须可用。已验证环境是 `/tmp/watt-m3-run.Qsb5bu/venv` 中的 Python 3.12.13，通过 `requirements-dev.lock` 及 `pip install --no-build-isolation --no-deps -e .` 安装；其他运行应替换为自己隔离的 Python 3.12 venv/cache 路径。以下精确命令于 2026-10-11 通过：
+
+```sh
+WATT_TEST_POSTGRES=1 UV_CACHE_DIR=/tmp/watt-m3-run.Qsb5bu/cache /tmp/watt-m3-run.Qsb5bu/venv/bin/python -m pytest tests/test_server_bootstrap.py tests/test_package.py -q --tb=short
+/tmp/watt-m3-run.Qsb5bu/venv/bin/python -m ruff check .
+/tmp/watt-m3-run.Qsb5bu/venv/bin/python -m ruff format --check .
+```
+
+结果：**42 passed**，包含真实 PostgreSQL launcher 和安装包资源；Ruff 两项均通过。严格 public-origin 回归覆盖空白/控制字符、反斜线、非法 authority/host 及合法 DNS/localhost/IPv4/IPv6/端口。Docker socket 访问需要沙箱权限提升；初次受限运行是 41 passed 和一项 Docker 权限失败，不是产品缺陷。
+
+以下精确 launcher 示例也已通过。M3-02 及后续 DB fixture 应使用相同的 `start → try → finally → stop` 生命周期，只使用 `server.database_url` 或 `server.database_url_file`。将 `SELECT 1` 主体替换为该任务检查，并在释放 engine、停止 launcher 前关闭所有 session、stream 和 connection。不得打印 URL 或凭据。
+
+```sh
+env -u WATT_SERVER_DATABASE_URL -u WATT_SERVER_DATABASE_URL_FILE WATT_TEST_POSTGRES=1 PYTHONPATH=tests /tmp/watt-m3-run.Qsb5bu/venv/bin/python - <<'PY'
+from postgres_test_server import start_postgres_test_server, stop_postgres_test_server
+from sqlalchemy import create_engine, text
+
+server = start_postgres_test_server()
+engine = None
+try:
+    engine = create_engine(server.database_url, hide_parameters=True)
+    with engine.connect() as connection:
+        assert connection.scalar(text('SELECT 1')) == 1
+    # Later DB tests use only this URL; close sessions/connections before cleanup.
+finally:
+    try:
+        if engine is not None:
+            engine.dispose()
+    finally:
+        stop_postgres_test_server(server)
+assert not server.directory.exists()
+print('Isolated PostgreSQL query and private-directory cleanup passed')
+PY
+```
+
+Launcher 要求 `WATT_TEST_POSTGRES=1`，拒绝环境中的 `WATT_SERVER_DATABASE_URL`，从不读取部署 URL 文件。每次调用创建唯一 `watt-m3-test-...` 容器，使用 `postgres:17.6-alpine`、匿名数据卷、随机且仅 loopback 的端口，以及含 0600 URL 文件的私有临时目录。清理仅删除该容器、其卷和目录。任务测试验证目录和卷删除；示例验证查询成功和目录删除。未使用已有数据库或部署资源。M3-02 的 schema、迁移及数据库检查仍待执行。
+
+### 后续计划自动化入口
+
+在 `/tmp` 创建唯一 Python 3.12 venv，安装 `requirements-dev.lock`，再执行 `pip install --no-build-isolation --no-deps -e .`。使用临时 cache/data 及上面已测试的 M3-01 PostgreSQL launcher，不得使用生产或继承的部署连接设置。浏览器测试需要开发 Chromium。M3-08/09 必须在验收前补齐测试过的容器/恢复命令。以下后续入口在对应任务记录证据前仍属于计划。
 
 - 第 3 节固定各任务 pytest 入口，DB 用例通过隔离 PostgreSQL harness 运行。
 - 完整离线回归：`python -m pytest -q`；显式 opt-in 临时 Compose 测试并提供项目设置，不能把跳过的集成测试当作通过。
@@ -242,13 +281,14 @@ CSV 使用无 BOM 的 UTF-8、逗号分隔、CRLF 行和标准 CSV 引号，固�
 
 | 项目 | 状态 / 证据 |
 | --- | --- |
-| 双语设计与任务边界 | 已在本文定义；实现未开始 |
-| M3-01–M3-10 实现与任务检查 | 待执行 |
-| M1/M2 回归、Ruff、安装包检查 | 待执行 |
+| 双语设计与任务边界 | 已在本文定义 |
+| M3-01 基础实现与任务检查 | 42 passed；Ruff、安装包检查通过；独立审查与集成检查通过 |
+| M3-02–M3-10 实现与任务检查 | 待执行 |
+| 完整 M1/M2 回归与集成静态/安装包检查 | 待执行 |
 | 真实 PostgreSQL 并发/原子性/CSV 检查 | 待执行 |
 | 本地 Compose、Caddy 验证、自动浏览器 walkthrough | 待执行 |
 | 隔离备份恢复与资源清理 | 待执行 |
 | 所有者浏览器 walkthrough 验收 | 待执行 |
 | 公网部署、Logger 上传器/恢复、物理硬件 | M4，不由 M3 声明通过 |
 
-每完成一项，在此同步双语追加实际命令、结果、环境/镜像版本、重要修复、不可用检查和清理证据。设计就绪不等于实现验收。本次编写设计未执行任何服务端、数据库、浏览器或部署检查。
+每完成一项，在此同步双语追加实际命令、结果、环境/镜像版本、重要修复、不可用检查和清理证据。设计就绪不等于实现验收。目前仅执行上面的 M3-01 基础检查；浏览器、部署及所有者验收仍待执行。
