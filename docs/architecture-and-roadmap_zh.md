@@ -49,4 +49,4 @@ MVP 按依赖关系推进：**M1 协议与契约 → M2 独立 Logger → M3 人
 - 凭据／现场授权、UUID 稳定性、换现场不改旧记录归属、采集／上传期间重启、长期断网、响应丢失、重放和去重。
 - 查询与 CSV 一致。图表一致性、报告数字可追溯、模型不可用和 Modbus 实物验证属于后续阶段检查。
 
-[M1 文档](milestone/m1_zh.md)内包含首个 P1 profile、具体 API／schema 契约及八个原子实现任务；可执行协议／领域／上传契约、诊断 probe 和离线检查已经实现并通过独立审查；存储是供 M2／M3 实施的规范。参见[完成记录](milestone/m1_zh.md#4-检查与完成记录)。每个 milestone 在 `docs/milestone/` 下的一份英文 Markdown 及中文镜像内维护设计、任务和验收记录。快照大小和容量在 MVP 验证中测量。未来 Modbus 具体型号、AI 模型、报告呈现和远程配置／升级机制留待后续设计。
+[M1 文档](milestone/m1_zh.md)内包含首个 P1 profile、具体 API／schema 契约及八个原子实现任务；可执行协议／领域／上传契约、诊断 probe 和离线检查已经实现并通过独立审查；存储是供 M2／M3 实施的规范。参见[完成记录](milestone/m1_zh.md#4-检查与完成记录)。[M2 设计](milestone/m2_zh.md)规定独立 Logger 及十个原子任务；M2 将记录本地保存为 pending，不实现网络上传。每个 milestone 在 `docs/milestone/` 下的一份英文 Markdown 及中文镜像内维护设计、任务和验收记录。快照大小和容量在 MVP 验证中测量。未来 Modbus 具体型号、AI 模型、报告呈现和远程配置／升级机制留待后续设计。
