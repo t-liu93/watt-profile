@@ -298,6 +298,8 @@ unset WATT_TEST_COMPOSE_PROJECT
 
 - M2-02：自动检查和全新独立审查通过。`tests/test_logger_storage.py -q`：49 项通过；全套回归：211 项通过；Ruff 通过。独立验证包含事务回滚、并发阻断、A→B→A 和仓库外安装包迁移。一轮修复保留已完成会话的结束时间并执行严格 JSON 约束。全部数据库和 descriptor 使用临时／合成数据。
 
+- M2-03：自动检查和全新独立审查通过。`tests/test_logger_identity.py tests/test_lifecycle.py -q`：37 项通过；含存储共 86 项通过；Ruff 通过。故障注入验证文件／目录 fsync 先于首次身份提交、Token 稳定恢复、过期／失败部署及独立阻断。一轮修复关闭 rename 后恢复的持久化缺口。真实读取者／drain 留给 M2-05。
+
 ### 验收记录
 
 | 证据 | 状态 |

@@ -126,6 +126,9 @@ def _projection(snapshot: Snapshot) -> dict[str, object]:
     return content
 
 
+_UNSET_SESSION = object()
+
+
 class LoggerRepository:
     def __init__(self, engine: Engine):
         self.engine = engine
@@ -246,11 +249,21 @@ class LoggerRepository:
             raise ValueError("installation_required")
         return installation.lifecycle
 
-    def save_settings(self, settings: LocalSettings) -> LocalSettings:
+    def save_settings(
+        self, settings: LocalSettings, *, expected_session_id: UUID | None | object = _UNSET_SESSION
+    ) -> LocalSettings:
         settings = LocalSettings.model_validate(settings.model_dump())
         with self._transaction(write=True) as session:
-            if self._load_installation(session) is None:
+            installation = self._load_installation(session)
+            if installation is None:
                 raise ValueError("installation_required")
+            selected = (
+                installation.lifecycle.session.descriptor.session_id
+                if installation.lifecycle.session
+                else None
+            )
+            if expected_session_id is not _UNSET_SESSION and expected_session_id != selected:
+                raise ValueError("stale_session")
             session.execute(update(db.config).values(**settings.storage_values()))
         return settings
 
