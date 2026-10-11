@@ -1,0 +1,50 @@
+# Standalone serial deployment. Supply all required values using --env-file.
+x-image: &image
+  image: watt-profile-logger:${WATT_IMAGE_TAG:-local}
+  build:
+    context: ../..
+    dockerfile: deploy/logger/Dockerfile
+services:
+  logger-init:
+    <<: *image
+    user: "0:0"
+    network_mode: none
+    entrypoint: ["python", "-c"]
+    command: ["import os; os.chown('/data', 10001, 10001); os.chmod('/data', 0o700)"]
+    volumes:
+      - logger-data:/data
+  logger:
+    <<: *image
+    user: "10001:10001"
+    depends_on:
+      logger-init:
+        condition: service_completed_successfully
+    environment:
+      WATT_LOGGER_DATA_DIR: /var/lib/watt-profile
+      WATT_LOGGER_INPUT: serial
+      WATT_LOGGER_OPERATOR_USER: ${WATT_LOGGER_OPERATOR_USER:?Set operator username}
+      WATT_LOGGER_OPERATOR_PASSWORD_FILE: /run/credentials/operator-password
+      WATT_LOGGER_COOKIE_SECURE: ${WATT_LOGGER_COOKIE_SECURE:-false}
+    ports:
+      - "${WATT_LOGGER_BIND_ADDRESS:?Set host bind address}:${WATT_LOGGER_PUBLISHED_PORT:?Set host port}:8080"
+    devices:
+      - "${WATT_LOGGER_SERIAL_DEVICE:?Set serial device}:/dev/p1"
+    group_add:
+      - "${WATT_LOGGER_SERIAL_GID:?Set serial device group ID}"
+    volumes:
+      - logger-data:/var/lib/watt-profile
+      - type: bind
+        source: ${WATT_LOGGER_OPERATOR_PASSWORD_FILE:?Set absolute password file}
+        target: /run/credentials/operator-password
+        read_only: true
+        bind:
+          create_host_path: false
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+volumes:
+  logger-data:

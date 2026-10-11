@@ -29,6 +29,7 @@ from watt_profile.logger.runtime import LoggerRuntime, ReadingView
 from watt_profile.logger.settings import LoggerSettings
 from watt_profile.logger.storage.database import create_database, migrate
 from watt_profile.logger.storage.repository import LocalSettings, LoggerRepository, Site
+from watt_profile.logger.synthetic import SyntheticSerialFactory
 
 PREFIX = "/api/local/v1"
 
@@ -213,11 +214,13 @@ def create_app(settings: LoggerSettings, *, serial_factory=None, clock=None, aut
                 password,
                 **({"clock": auth_clock} if auth_clock is not None else {}),
             )
-            if settings.input_mode == "synthetic" and serial_factory is None:
-                raise RuntimeError("synthetic_source_unavailable")
             runtime = LoggerRuntime(
                 repository,
-                serial_factory=serial_factory,
+                serial_factory=(
+                    SyntheticSerialFactory()
+                    if settings.input_mode == "synthetic" and serial_factory is None
+                    else serial_factory
+                ),
                 clock=clock,
                 input_mode=settings.input_mode,
             )

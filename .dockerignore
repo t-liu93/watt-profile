@@ -1,0 +1,8 @@
+*
+!requirements.lock
+!pyproject.toml
+!README.md
+!src/
+!src/**
+src/**/__pycache__/
+src/**/*.pyc

@@ -2,7 +2,7 @@
 
 > [English — source of truth](m2.md) · **中文**
 
-状态：实施中，2026-10-11。M2-01–M2-08 已验收；M2-09–M2-10 仍待完成。第 4 节记录任务证据；Milestone 验收仍待完成。
+状态：实施中，2026-10-11。M2-01–M2-09 已验收；M2-10 仍待完成。第 4 节记录任务证据；Milestone 验收仍待完成。
 
 ## 1. 目标与 agent 使用方式
 
@@ -259,25 +259,67 @@ python -m playwright install chromium
 python -m pytest tests/browser/test_logger_ui.py -q
 ```
 
-M2-09 必须落实并验证以下计划命令，记录宿主浏览器依赖。集成 harness 读取 `WATT_TEST_COMPOSE_PROJECT`，要求非空且以 `watt-m2-` 开头，只操作该项目服务／资源；要求 8080 空闲，或说明显式临时端口覆盖。不得发现并删除无关容器。
+### 容器操作（M2-09）
+
+显式集成 harness 连接全新可丢弃开发项目，验证登录／预览、真实合成采集、已安装模板／静态资源、UID/GID、就绪检查，以及应用重建后的身份和记录字节保留。它不会启动项目或删除卷。仅通过以下显式路径运行。使用未被占用的项目和回环端口；harness 拒绝缺失或无效的 `WATT_TEST_COMPOSE_PROJECT`（非空 `watt-m2-` 前缀）。开发账号为 `operator`／`watt-profile-dev-only`，密码仅存在于项目私有凭据卷。没有宿主设备、服务器或外部卷。
 
 ```bash
 export WATT_TEST_COMPOSE_PROJECT="watt-m2-$(date +%s)-$$"
+export WATT_DEV_IMAGE_TAG="$WATT_TEST_COMPOSE_PROJECT"
+export WATT_DEV_PORT=8080  # choose a free temporary port if 8080 is occupied
+# These three commands must produce no resources; choose a new project if any exist.
+docker ps -aq --filter "label=com.docker.compose.project=$WATT_TEST_COMPOSE_PROJECT"
+docker volume ls -q --filter "label=com.docker.compose.project=$WATT_TEST_COMPOSE_PROJECT"
+docker network ls -q --filter "label=com.docker.compose.project=$WATT_TEST_COMPOSE_PROJECT"
+python -c 'import os,socket; s=socket.socket(); s.bind(("127.0.0.1",int(os.environ["WATT_DEV_PORT"]))); s.close()'
 docker compose -p "$WATT_TEST_COMPOSE_PROJECT" -f docker-compose.dev.yml config --quiet
 docker compose -p "$WATT_TEST_COMPOSE_PROJECT" -f docker-compose.dev.yml up --build -d --wait
 python -m pytest tests/integration/test_logger_compose.py -q
 docker compose -p "$WATT_TEST_COMPOSE_PROJECT" -f docker-compose.dev.yml logs --tail=100 logger
-docker buildx build --platform linux/arm64 -f deploy/logger/Dockerfile --output=type=cacheonly .
 ```
 
-集成测试连接此显式项目，验证 API／浏览器／容器重建，不执行破坏性卷清理。最终清理前完成走查：
+使用 `python -m playwright install chromium` 将 Chromium 安装到临时 `PLAYWRIGHT_BROWSERS_PATH`。Linux Chromium 还需要 Playwright 列出的宿主库（`python -m playwright install-deps --dry-run chromium` 可显示）；验证期间不得自动修改宿主。缺库导致的浏览器失败必须明确记录为失败／未运行。默认测试会跳过浏览器／Compose 模块，除非显式选择其目录。
+
+`up --build` 构建并运行本机镜像。ARM64 是独立构建目标，不代表硬件执行。在缺少 ARM64 执行支持的宿主上，下列命令可能失败，此时验收仍待完成；不得省略目标或修改全局 binfmt／默认 builder。只创建和删除本轮唯一 builder：
+
+```bash
+export WATT_TEST_BUILDER="$WATT_TEST_COMPOSE_PROJECT-builder"
+docker buildx create --name "$WATT_TEST_BUILDER" --driver docker-container
+# Does not select/change the default builder or install global emulation.
+docker buildx build --builder "$WATT_TEST_BUILDER" --platform linux/arm64 -f deploy/logger/Dockerfile --output=type=cacheonly .
+docker buildx rm "$WATT_TEST_BUILDER"
+unset WATT_TEST_BUILDER
+```
+
+最终清理前，在 `http://127.0.0.1:$WATT_DEV_PORT` 完成浏览器走查。仅删除本可丢弃项目创建的资源及其唯一开发镜像：
 
 ```bash
 docker compose -p "$WATT_TEST_COMPOSE_PROJECT" -f docker-compose.dev.yml down --volumes --remove-orphans
-unset WATT_TEST_COMPOSE_PROJECT
+docker image rm "watt-profile-logger-dev:$WATT_DEV_IMAGE_TAG"
+unset WATT_TEST_COMPOSE_PROJECT WATT_DEV_IMAGE_TAG WATT_DEV_PORT
 ```
 
-上述破坏性卷清理**仅限**可丢弃开发项目。独立部署使用 `docker compose --env-file <local-config> -p watt-logger -f deploy/logger/compose.yml up --build -d --wait`；正常 `down` 不加 `--volumes`。M2-09 提供精确示例变量及文件／设备权限设置。M2 验证不执行生产部署。
+### 独立串口部署设置（不属于合成验证）
+
+受跟踪的[配置示例](../../deploy/logger/.env.example)仅含占位符，没有账号密码。复制到被忽略的 `.env.local`，替换全部必填值。在权限为 0700 的私有目录创建密码，再让文件仅能由容器应用 UID 10001 读取。宿主父目录无需对该 UID 开放：Compose 将单个文件以只读方式绑定到容器。root 初始化服务仅将挂载的数据目录改为 UID/GID 10001、权限 0700，无网络／设备并完成后退出；应用始终以 `10001:10001` 无特权运行。独立部署不得使用开发凭据设置。
+
+```bash
+cp deploy/logger/.env.example deploy/logger/.env.local
+# Edit .env.local: absolute password/device paths, actual numeric device GID,
+# operator name, explicit host bind address and host port.
+install -d -m 0700 /absolute/private/path
+python -m watt_profile.cli.logger_admin generate-password --output /absolute/private/path/operator.secret
+sudo chown 10001:10001 /absolute/private/path/operator.secret
+sudo chmod 0600 /absolute/private/path/operator.secret
+stat -c '%g %a %n' /dev/serial/by-id/your-device
+# Save that numeric device group as WATT_LOGGER_SERIAL_GID; it needs group read access.
+docker compose --env-file deploy/logger/.env.local -p watt-logger -f deploy/logger/compose.yml config --quiet
+docker compose --env-file deploy/logger/.env.local -p watt-logger -f deploy/logger/compose.yml up --build -d --wait
+# Normal stop preserves the deployment volume.
+docker compose --env-file deploy/logger/.env.local -p watt-logger -f deploy/logger/compose.yml down
+```
+
+只将所选设备映射到 `/dev/p1`；补充组 `WATT_LOGGER_SERIAL_GID` 必须匹配其宿主组。通过登录后的串口配置页设置 `/dev/p1`；启动不会覆盖保存的串口／现场设置。单 worker 配置就绪检查、30 秒停止宽限及持久私有数据卷。正常 `down`／重建保留数据、设备 UUID 和 Token。备份／恢复及密码更改遵循已有私有文件流程；不要把删除部署卷当成清理。M2 检查不使用真实设备或生产部署。
 
 ### 计划浏览器走查
 
@@ -309,6 +351,8 @@ unset WATT_TEST_COMPOSE_PROJECT
 - M2-07：自动检查和全新独立审查通过。HTTP 验收 25 项通过；独立相关回归 157 项通过；编排器 HTTP／运行时／存储 98 项通过；Ruff 通过。一轮修复将配置／现场部分修改的读取、合并、验证和提交放入单个协调器命令，并加入确定性重叠编辑回归。认证／到期／登出／重启、有界限流、CSRF／Origin、隐私及固定错误／显式 reveal、旧会话、健康／锁释放和命令响应使用隔离 HTTPX／假串口验证。沙箱中的 asyncio 默认线程池收尾会卡住；这些隔离检查在沙箱外运行，并禁止外连。Synthetic 源和完整 dashboard 留给后续任务。
 
 - M2-08：自动检查和全新独立审查通过。显式浏览器验收 5 项通过；API 25 项通过；安装资源 1 项通过；额外独立浏览器检查通过；Ruff 通过。一轮提交前集成修复使轮询中的 session ID DOM 读取可重试／原子化，并保证浏览器收尾；保留全部 UI 断言。检查覆盖首次离线设置、可选预览、指标／空值、生命周期／确认、当前时间／全局积压、注册隐私／复制后备、分页／清理保护、阻断、到期／忙碌／存储错误、两秒非重叠轮询及刷新不重放。默认选择跳过浏览器测试，不启动服务。测试只使用临时 loopback 应用、凭证／数据库及假串口。
+
+- M2-09：自动检查和全新独立审查通过。Synthetic／API／安装包检查 29 项通过；显式 Compose 验收 1 项通过；独立 synthetic 检查 3 项、Compose 检查 1 项通过；Ruff 通过。使用专用临时 BuildKit builder 成功构建 AMD64 和 Linux ARM64 镜像，仅实际运行 AMD64。两个独立临时 synthetic 项目验证真实解析、安装后的模板／迁移、readiness、UID/GID 10001、私有卷、回环绑定、无主机设备，以及重建后身份／Token 摘要／规范记录保持。无需修复轮次；未声称服务器、上传或硬件验收。编排器在 M2-10 中负责清理这些确切临时资源。
 
 ### 验收记录
 

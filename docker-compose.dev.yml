@@ -1,0 +1,55 @@
+# Disposable synthetic development only. No host serial devices or external volumes.
+x-image: &image
+  image: watt-profile-logger-dev:${WATT_DEV_IMAGE_TAG:-local}
+  build:
+    context: .
+    dockerfile: deploy/logger/Dockerfile
+services:
+  logger-init:
+    <<: *image
+    user: "0:0"
+    network_mode: none
+    entrypoint: ["python", "-c"]
+    command:
+      - |
+        import os
+        from pathlib import Path
+        os.umask(0o077)
+        for name in ('/data', '/credentials'):
+            os.chown(name, 10001, 10001)
+            os.chmod(name, 0o700)
+        password = Path('/credentials/operator-password')
+        if not password.exists():
+            with password.open('x') as stream:
+                stream.write('testtesttesttest\n')
+            os.chown(password, 10001, 10001)
+            os.chmod(password, 0o600)
+    volumes:
+      - logger-data:/data
+      - logger-credentials:/credentials
+  logger:
+    <<: *image
+    user: "10001:10001"
+    depends_on:
+      logger-init:
+        condition: service_completed_successfully
+    environment:
+      WATT_LOGGER_DATA_DIR: /var/lib/watt-profile
+      WATT_LOGGER_INPUT: synthetic
+      WATT_LOGGER_OPERATOR_USER: operator
+      WATT_LOGGER_OPERATOR_PASSWORD_FILE: /run/credentials/operator-password
+    ports:
+      - "127.0.0.1:${WATT_DEV_PORT:-8080}:8080"
+    volumes:
+      - logger-data:/var/lib/watt-profile
+      - logger-credentials:/run/credentials:ro
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+volumes:
+  logger-data:
+  logger-credentials:
