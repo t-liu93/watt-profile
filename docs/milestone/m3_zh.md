@@ -2,7 +2,7 @@
 
 > **中文** · [English — source of truth](m3.md)
 
-状态：实现进行中，2026-10-11。M3-01–M3-03 实现、检查与独立审查已完成；M3-04–M3-10 及所有者浏览器验收仍待执行。M1、M2 已验收。第 4 节记录已完成的基础/存储检查，不代表 HTTP 服务端已经可用。
+状态：实现进行中，2026-10-11。M3-01–M3-04 实现、检查与独立审查已完成；M3-05–M3-10 及所有者浏览器验收仍待执行。M1、M2 已验收。第 4 节记录已完成的基础/存储检查，不代表 HTTP 服务端已经可用。
 
 ## 1. 目标与 Agent 使用方式
 
@@ -278,6 +278,19 @@ WATT_TEST_POSTGRES=1 PYTHONDONTWRITEBYTECODE=1 /tmp/watt-m3-run.Qsb5bu/venv/bin/
 
 审查修复：注册事务已将连接池 checkout 超时转换为固定可重试存储失败。修复后注册测试 **52 项通过**，包含预览/提交真实十连接耗尽、释放、无部分写与成功重试；Ruff 通过，临时资源已删除。
 
+### M3-04 原子接收检查
+
+已实现独立单调认证联系事务与锁内原子批次接收，使用 typed M1 错误/确认。描述符/记录写入前在共享锁内重查启用凭据和站点授权；提交后才构造确认。
+
+```sh
+env -u WATT_SERVER_DATABASE_URL -u WATT_SERVER_DATABASE_URL_FILE WATT_TEST_POSTGRES=1 PYTHONDONTWRITEBYTECODE=1 /tmp/watt-m3-run.Qsb5bu/venv/bin/python -m pytest tests/test_server_ingest.py tests/test_upload_contract.py -q --tb=short -o cache_dir=/tmp/watt-m3-04-impl-final-cache --basetemp=/tmp/watt-m3-04-impl-final-tests
+```
+
+结果：**105 passed**（44 项接收及 61 项上传契约），Ruff 通过。补充最后两项 contact/disable 竞争前，接收/上传/注册组合曾为 155 项通过。覆盖无效/禁用凭据、失败载荷联系语义、设备/站点授权、不可变描述符/记录冲突、重复/混合批次、回滚、已提交重试、独立连接相同/不同重放、跨设备碰撞及 disable/revoke/contact 锁顺序。两次临时 PostgreSQL 生命周期与任务缓存均已清理；独立审查与集成检查通过。未增加网络路由或上传器。
+
+
+集成修复：JSON 序列化前重验内部批次/Snapshot 的 Python 类型，关闭可能包含输入的 serializer warning。修复后接收/上传测试 **115 项通过**，保留固定错误分类、Decimal scale/null/数组顺序和字节限制，同时拒绝构造的 float 且无写入；Ruff 通过，自建资源已删除。
+
 ### 后续计划自动化入口
 
 在 `/tmp` 创建唯一 Python 3.12 venv，安装 `requirements-dev.lock`，再执行 `pip install --no-build-isolation --no-deps -e .`。使用临时 cache/data 及上面已测试的 M3-01 PostgreSQL launcher，不得使用生产或继承的部署连接设置。浏览器测试需要开发 Chromium。M3-08/09 必须在验收前补齐测试过的容器/恢复命令。以下后续入口在对应任务记录证据前仍属于计划。
@@ -308,7 +321,8 @@ WATT_TEST_POSTGRES=1 PYTHONDONTWRITEBYTECODE=1 /tmp/watt-m3-run.Qsb5bu/venv/bin/
 | M3-01 基础实现与任务检查 | 42 passed；Ruff、安装包检查通过；独立审查与集成检查通过 |
 | M3-02 schema/仓储 | 32 项存储检查、74 项定向检查；独立审查与集成检查通过 |
 | M3-03 注册/授权 | 52 项注册、84 项定向检查；独立审查与集成检查通过 |
-| M3-04–M3-10 实现与任务检查 | 待执行 |
+| M3-04 原子接收 | 115 项接收/上传检查；独立审查与集成检查通过 |
+| M3-05–M3-10 实现与任务检查 | 待执行 |
 | 完整 M1/M2 回归与集成静态/安装包检查 | 待执行 |
 | 真实 PostgreSQL 并发/原子性/CSV 检查 | 待执行 |
 | 本地 Compose、Caddy 验证、自动浏览器 walkthrough | 待执行 |
