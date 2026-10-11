@@ -1,1 +1,32 @@
-{# Server template resource package marker; pages arrive in M3-06. #}
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Watt Profile Server</title><meta name="csrf-token" content="{{ csrf }}">
+<script src="/static/theme.js"></script><link rel="stylesheet" href="/static/server.css">
+<script src="/static/server.js" defer></script></head>
+<body data-page="{{ page }}" data-object-id="{{ object_id }}">
+<header><h1>Watt Profile Server</h1><button id="theme-toggle" type="button">Light mode</button>
+<nav><a href="/">Dashboard</a> · <a href="/#registration">Register Logger</a></nav>
+<form method="post" action="/logout" id="logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Log out</button></form></header>
+<p id="error" role="alert" hidden></p><a id="login-link" href="/login" hidden>Log in again</a>
+<p id="message" role="status"></p><button id="reload" type="button">Reload status / retry</button>
+<main>
+{% if page == 'dashboard' %}
+<section id="registration"><h2>Register Logger</h2><p>Paste the JSON copied from Logger. Preview makes no changes. Confirm rechecks current state. Existing site metadata is preserved.</p>
+<form id="registration-form"><label>Logger registration JSON<textarea id="summary" required autocomplete="off" spellcheck="false"></textarea></label><button>Preview registration</button></form>
+<div id="registration-preview" hidden><h3>Masked preview</h3><pre id="preview"></pre><button id="register" type="button">Confirm registration</button></div>
+<button id="cancel-registration" type="button">Cancel registration</button><div id="registration-result"></div></section>
+<section><h2>Sites</h2><form id="search"><label>Address contains<input name="q"></label><label>Exact site UUID<input name="site_id"></label><button>Search sites</button></form><div id="sites"></div><button id="sites-prev">Previous sites</button><button id="sites-next">Next sites</button>
+<details><summary>Create site separately</summary><form id="create-site"><label>Site UUID<input name="site_id" required></label><label>Address<textarea name="address" maxlength="500"></textarea></label><label>Description<textarea name="description" maxlength="2000"></textarea></label><button>Create site</button></form></details></section>
+<section><h2>Devices</h2><div id="devices"></div><button id="devices-prev">Previous devices</button><button id="devices-next">Next devices</button><form id="create-device"><label>Device UUID<input name="device_id" required></label><button>Create device</button></form></section>
+{% elif page == 'site' %}
+<section><h2>Site</h2><dl id="status"></dl><h3>Explicit metadata edit</h3><form id="edit-site"><label>Address<textarea name="address" maxlength="500"></textarea></label><label>Description<textarea name="description" maxlength="2000"></textarea></label><button>Save metadata</button></form></section>
+<section><h2>Readings</h2><form id="filters"><label>Session UUID<input name="session_id"></label><label>Device UUID<input name="device_id"></label><label>Received from (UTC, inclusive)<input name="received_from" placeholder="2026-01-01T00:00:00Z"></label><label>Received before (UTC, exclusive)<input name="received_before" placeholder="2026-01-02T00:00:00Z"></label><label>Rows per page<input name="limit" type="number" min="1" max="200" value="50" required></label><button>Apply filters</button></form><p>Use aware ISO 8601 times with Z or an explicit offset; no local-time interpretation.</p>
+<button id="export" type="button">Export all filtered readings (CSV)</button><p id="reading-count"></p><div class="table-scroll"><table><thead><tr><th>Received (UTC)</th><th>Device</th><th>Import energy T1 (kWh)</th><th>Total import power (kW)</th><th>Detail</th></tr></thead><tbody id="readings"></tbody></table></div><button id="readings-prev">Previous readings</button><button id="readings-next">Next readings</button></section>
+<section><h2>Sessions (immutable descriptors)</h2><pre id="sessions"></pre><button id="sessions-prev">Previous sessions</button><button id="sessions-next">Next sessions</button></section>
+<dialog id="detail-dialog"><h2>Reading detail</h2><dl id="reading-detail"></dl><h3>All 18 metrics</h3><dl id="metrics"></dl><h3>Sanitized fields and quality</h3><pre id="fields-quality"></pre><button id="detail-close">Close detail</button></dialog>
+{% else %}
+<section><h2>Device</h2><dl id="status"></dl><h3>Credentials</h3><div id="credentials"></div><form id="first-credential"><label>First credential Token<input name="token" type="password" autocomplete="off" required></label><button>Register first credential</button></form><p>Existing enabled credentials can be reused; rotation and re-enablement are unavailable.</p><h3>Authorized sites</h3><div id="grants"></div><form id="add-grant"><label>Site UUID<input name="site_id" required></label><button>Add site grant</button></form><p>Adding a grant preserves earlier grants. Historical readings do not indicate a current site.</p></section>
+{% endif %}
+</main><dialog id="confirmation"><h2>Confirm change</h2><p id="confirmation-text"></p><button id="confirm">Confirm</button><button id="cancel">Cancel</button></dialog>
+</body></html>

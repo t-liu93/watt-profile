@@ -92,6 +92,10 @@ assert root.joinpath('server/settings.py').is_file()
 assert root.joinpath('server/storage/migrations/__init__.py').is_file()
 assert root.joinpath('server/templates/base.html').is_file()
 assert root.joinpath('server/static/server.css').is_file()
+assert root.joinpath('server/static/server.js').is_file()
+assert root.joinpath('server/static/theme.js').is_file()
+assert root.joinpath('server/static/login.js').is_file()
+assert root.joinpath('server/templates/login.html').is_file()
 import watt_profile.server
 print(root)
 """

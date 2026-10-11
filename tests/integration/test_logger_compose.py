@@ -164,7 +164,7 @@ def test_complete_offline_compose_browser_walkthrough(compose):
                 page.get_by_role("button", name="Reveal registration information").click()
                 expect(page.locator("#registration-text")).to_be_visible()
                 value = page.locator("#registration-text").input_value()
-                token = value.split("Token: ")[1]
+                token = json.loads(value)["token"]
                 assert token not in str(page.evaluate("Object.assign({}, localStorage)"))
                 assert token not in page.url
                 page.evaluate(

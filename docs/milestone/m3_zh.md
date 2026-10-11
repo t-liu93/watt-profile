@@ -2,7 +2,7 @@
 
 > **中文** · [English — source of truth](m3.md)
 
-状态：实现进行中，2026-10-11。M3-01–M3-06 实现、检查与独立审查已完成；M3-07–M3-10 及所有者浏览器验收仍待执行。M1、M2 已验收。第 4 节记录服务与 HTTP 检查；完整页面及部署仍待执行。
+状态：实现进行中，2026-10-12。M3-01–M3-07 实现、检查与独立审查已完成；M3-08–M3-10 及所有者浏览器验收仍待执行。M1、M2 已验收。第 4 节记录服务、HTTP 及浏览器检查；部署仍待执行。
 
 ## 1. 目标与 Agent 使用方式
 
@@ -313,6 +313,18 @@ WATT_TEST_POSTGRES=1 /tmp/watt-m3-run.Qsb5bu/venv/bin/python -m pytest tests/tes
 
 结果：**17 passed**；Ruff 检查通过（97 个已格式化文件）。最终边界补充前，相关服务与 Logger API 回归 **204 项通过**。最终定向检查覆盖认证隔离/过期/退出/重启/限流、安全错误、Host/Origin、请求体限制、ready/DB 不可用和无自动上传。实际应用 CSV 路由覆盖正常断开及真实 PostgreSQL 阻塞读取中取消：在测试八秒期限内释放 stream、连接与导出名额。覆盖 UTF-8 解码及启动异常脱敏。保留一条 Starlette/httpx 弃用警告。Fixture 自建容器/卷/私有目录和任务缓存已删除。独立审查与集成检查通过；完整页面与容器交付属于后续任务。
 
+### M3-07 管理页面与 Logger 互通检查
+
+已实现英文 dashboard/site/device 页面及主题登录页，包含可键盘操作的表单、隐藏 Token 的注册预览、显式元数据/授权/禁用控制、独立状态时间戳、筛选/详情及原生完整 CSV 下载。可见状态每十秒无重叠轮询，不替换读数表或编辑草稿。Logger 复制内容改为格式化五字段 JSON，保留可读标签及原注册 API。摘要清理同时阻止迟到响应恢复已取消的秘密。
+
+```sh
+WATT_TEST_POSTGRES=1 PLAYWRIGHT_BROWSERS_PATH=/tmp/watt-m3-run.Qsb5bu/browser /tmp/watt-m3-run.Qsb5bu/venv/bin/python -m pytest tests/browser/test_server_ui.py tests/browser/test_logger_ui.py tests/test_logger_api.py -q -p no:cacheprovider --basetemp=/tmp/watt-m3-07-synchronized
+```
+
+2026-10-12 结果：**35 passed**；相关 Server HTTP/auth/安装包检查 **18 项通过**。最后原生下载错误处理补充后，读数/筛选/详情/CSV/轮询浏览器用例单独 **1 passed**：每页一行时成功附件仍包含三条匹配记录；503 打开安全错误标签页，不将 JSON 保存成 CSV。Ruff check/format-check（98 个 Python 文件）及 diff 检查通过。浏览器将实际 Logger 生成的 JSON 传入使用临时 PostgreSQL 的 Server。覆盖多行/转义元数据、已知站点保护与显式编辑、确认/取消、独立创建/首凭据/授权、冲突/不可用/过期状态、摘要清理/迟到响应、主题及隐藏/无重叠轮询。注册结果等刷新完成再显示；Logger 键盘准备等待初始配置 DOM 加载，保留键盘断言。保留既存 Starlette 测试客户端弃用警告。八个任务 basetemp、两个应用线程、浏览器 context 及 fixture 自建 DB 资源已清理，共用运行工具保留。独立审查与集成检查通过（40 项浏览器/API 及 18 项兼容检查）；Compose 和所有者验收属于后续检查。
+
+审查修复：注册成功后立即清理原摘要并显示已提交结果，再独立刷新状态。刷新错误不能隐藏结果、保留 Token、阻止下一次预览或覆盖后续操作。修复后指定浏览器/Logger API 测试 **40 项通过**，增加真实 HTTP 下刷新 503/断网/401，以及刷新等待期间新预览/取消分支。Ruff 与 diff 检查通过；wrapper 自建 `/tmp/watt-m3-07-fix1-*` 缓存/basetemp 及 fixture 资源已删除。
+
 ### 后续计划自动化入口
 
 在 `/tmp` 创建唯一 Python 3.12 venv，安装 `requirements-dev.lock`，再执行 `pip install --no-build-isolation --no-deps -e .`。使用临时 cache/data 及上面已测试的 M3-01 PostgreSQL launcher，不得使用生产或继承的部署连接设置。浏览器测试需要开发 Chromium。M3-08/09 必须在验收前补齐测试过的容器/恢复命令。以下后续入口在对应任务记录证据前仍属于计划。
@@ -346,7 +358,8 @@ WATT_TEST_POSTGRES=1 /tmp/watt-m3-run.Qsb5bu/venv/bin/python -m pytest tests/tes
 | M3-04 原子接收 | 115 项接收/上传检查；独立审查与集成检查通过 |
 | M3-05 查询/状态/CSV | 22 项真实 PostgreSQL 检查；独立审查与集成检查通过 |
 | M3-06 认证/HTTP | 17 项真实 PostgreSQL 检查；独立审查与集成检查通过 |
-| M3-07–M3-10 实现与任务检查 | 待执行 |
+| M3-07 管理页面/Logger JSON | 40 项浏览器/API、18 项兼容检查；独立审查与集成检查通过 |
+| M3-08–M3-10 实现与任务检查 | 待执行 |
 | 完整 M1/M2 回归与集成静态/安装包检查 | 待执行 |
 | 真实 PostgreSQL 并发/原子性/CSV 检查 | 任务检查通过；最终集成检查待执行 |
 | 本地 Compose、Caddy 验证、自动浏览器 walkthrough | 待执行 |

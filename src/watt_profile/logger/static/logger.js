@@ -4,12 +4,14 @@
   const csrf = document.querySelector('meta[name="csrf-token"]').content;
   let status = null, busy = false, expired = false, polling = null;
   let siteOffset = 0, siteTotal = 0, sessionOffset = 0, sessionTotal = 0, sites = [];
-  let previewReading = null, section = "collection";
+  let previewReading = null, section = "collection", registrationGeneration = 0;
   const pageSize = 20;
   const show = (id, text) => { $(id).textContent = text; };
   const value = v => v === null || v === undefined ? "Unavailable" : String(v);
   function clearRegistration() {
+    registrationGeneration++;
     $("registration-text").value = "";
+    $("registration-display").replaceChildren();
     $("registration-label").hidden = $("copy").hidden = true;
     show("copy-help", "");
   }
@@ -189,11 +191,15 @@
   $("storage-resolve").onclick = () => mutate(async () => { renderStatus(await api("/storage/resolve", "POST", {})); });
   $("reveal").onclick = () => mutate(async () => {
     clearRegistration();
+    const generation = registrationGeneration;
     const target = selectedSite();
     if (!target) throw {code: "no_site", message: "Select a saved site in Site and settings."};
     const result = await api("/registration-summary", "POST", {site_id: target});
-    if (section !== "registration" || expired) return;
-    $("registration-text").value = `Site UUID: ${result.site_id}\nAddress: ${result.address}\nDescription: ${result.description}\nDevice UUID: ${result.device_id}\nToken: ${result.token}`;
+    if (section !== "registration" || expired || generation !== registrationGeneration) return;
+    $("registration-text").value = JSON.stringify({site_id: result.site_id, address: result.address,
+      description: result.description, device_id: result.device_id, token: result.token}, null, 2);
+    details("registration-display", [["Site UUID", result.site_id], ["Address", result.address],
+      ["Description", result.description], ["Device UUID", result.device_id], ["Token", result.token]]);
     $("registration-label").hidden = $("copy").hidden = false;
     show("copy-help", "If clipboard access is unavailable, select this text and copy it manually.");
   });

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import socket
 import threading
 import time
@@ -125,6 +126,9 @@ def login(page, origin):
     page.get_by_role("button", name="Log in", exact=True).click()
     expect(page.get_by_role("heading", name="Watt Profile Logger")).to_be_visible()
     expect(page.locator("#status")).to_contain_text("idle")
+    # Initial status precedes the configuration fetch. Wait for its DOM write
+    # before editing, so initialization cannot overwrite keyboard-entered values.
+    expect(page.locator('#config input[name="baudrate"]')).not_to_have_value("")
 
 
 def section(page, name):
@@ -201,7 +205,7 @@ def test_offline_keyboard_preview_lifecycle_and_privacy(browser_app):
     section(page, "Registration")
     page.get_by_role("button", name="Reveal registration information").click()
     expect(page.locator("#registration-text")).to_be_visible()
-    token = page.locator("#registration-text").input_value().split("Token: ")[1]
+    token = json.loads(page.locator("#registration-text").input_value())["token"]
     assert token not in str(page.evaluate("Object.assign({}, localStorage)"))
     page.evaluate(
         "Object.defineProperty(navigator, 'clipboard', {value: undefined, configurable: true})"

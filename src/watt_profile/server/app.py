@@ -3,20 +3,21 @@
 import json
 from contextlib import asynccontextmanager
 from functools import partial
-from html import escape
 from ipaddress import ip_address
+from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 import anyio
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import (
-    HTMLResponse,
     JSONResponse,
     RedirectResponse,
     Response,
     StreamingResponse,
 )
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
@@ -250,6 +251,8 @@ def create_app(settings: ServerSettings | None = None):
                 await run_in_threadpool(engine.dispose)
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+    templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+    app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
     app.state.settings, app.state.ready = settings, False
     app.add_middleware(Boundary, settings=lambda: app.state.settings)
 
@@ -345,15 +348,10 @@ def create_app(settings: ServerSettings | None = None):
         return JSONResponse(healthy, status_code=200 if healthy else 503)
 
     @app.get("/login")
-    async def login_form():
+    async def login_form(request: Request):
         identifier, state = app.state.auth.login_state()
-        response = HTMLResponse(
-            '<!doctype html><html lang="en"><title>Server login</title><h1>Server login</h1>'
-            '<form method="post" action="/login">'
-            f'<input type="hidden" name="csrf" value="{escape(state.csrf)}">'
-            '<label>Username <input name="username" autocomplete="username"></label>'
-            '<label>Password <input name="password" type="password" '
-            'autocomplete="current-password"></label><button>Log in</button></form></html>'
+        response = templates.TemplateResponse(
+            request=request, name="login.html", context={"csrf": state.csrf}
         )
         cookie(response, LOGIN_COOKIE, identifier, 15 * 60)
         return response
@@ -417,18 +415,25 @@ def create_app(settings: ServerSettings | None = None):
     @app.get("/")
     @app.get("/sites/{site_id}")
     @app.get("/devices/{device_id}")
-    async def placeholder(request: Request):
+    async def administrator_page(request: Request):
         try:
             state = session(request)
         except ManagementError as exc:
             if exc.code == "authentication_required":
                 return RedirectResponse("/login", status_code=303)
             raise
-        return HTMLResponse(
-            '<!doctype html><html lang="en"><title>Watt Profile Server</title>'
-            "<h1>Watt Profile Server</h1><p>Administrator pages are under construction.</p>"
-            f'<form method="post" action="/logout"><input type="hidden" name="csrf" '
-            f'value="{escape(state.csrf)}"><button>Log out</button></form></html>'
+        object_id = next(iter(request.path_params.values()), "")
+        if object_id:
+            query_id(object_id)
+        page = (
+            "site"
+            if "site_id" in request.path_params
+            else ("device" if "device_id" in request.path_params else "dashboard")
+        )
+        return templates.TemplateResponse(
+            request=request,
+            name="base.html",
+            context={"csrf": state.csrf, "page": page, "object_id": object_id},
         )
 
     async def management(request: Request):
