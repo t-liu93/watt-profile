@@ -2,7 +2,7 @@
 
 > **中文** · [English — source of truth](m3.md)
 
-状态：实现进行中，2026-10-11。M3-01–M3-05 实现、检查与独立审查已完成；M3-06–M3-10 及所有者浏览器验收仍待执行。M1、M2 已验收。第 4 节记录已完成的基础/存储检查，不代表 HTTP 服务端已经可用。
+状态：实现进行中，2026-10-11。M3-01–M3-06 实现、检查与独立审查已完成；M3-07–M3-10 及所有者浏览器验收仍待执行。M1、M2 已验收。第 4 节记录服务与 HTTP 检查；完整页面及部署仍待执行。
 
 ## 1. 目标与 Agent 使用方式
 
@@ -301,6 +301,18 @@ WATT_TEST_POSTGRES=1 /tmp/watt-m3-run.Qsb5bu/venv/bin/python -m pytest tests/tes
 
 结果：**22 passed**，Ruff 通过（93 文件）。覆盖 UTC 边界、同时间/跨设备排序、并发插入时稳定快照、18 项指标/null/scale 与嵌套 JSON、完整查询/导出等价、空结果仅表头、有限 fetch、名额分配/释放、首次 next 前关闭、超时与异常清理。真实阻塞 FETCH 取消、单个 stream 清理失败后 manager 继续清理均通过。Fixture 自建容器/卷/私有目录和任务缓存已删除。独立审查与集成检查通过；未增加 HTTP/HTML。
 
+### M3-06 认证与 HTTP 检查
+
+已实现独立管理员状态、CSRF/Origin/Host 校验、完整管理及 M1 接收路由、有限 UTF-8 请求体、健康检查和生命周期清理。CLI 使用单 worker，关闭 reload、转发头信任及查询参数访问日志。内部健康探测连接内部端口时，发送配置公开 origin 对应的 Host authority。
+
+```sh
+WATT_TEST_POSTGRES=1 /tmp/watt-m3-run.Qsb5bu/venv/bin/python -m pytest tests/test_server_api.py tests/test_server_auth.py -q --tb=short -o cache_dir=/tmp/watt-m3-06-cache --basetemp=/tmp/watt-m3-06-tests
+/tmp/watt-m3-run.Qsb5bu/venv/bin/ruff check .
+/tmp/watt-m3-run.Qsb5bu/venv/bin/python -m ruff format --check .
+```
+
+结果：**17 passed**；Ruff 检查通过（97 个已格式化文件）。最终边界补充前，相关服务与 Logger API 回归 **204 项通过**。最终定向检查覆盖认证隔离/过期/退出/重启/限流、安全错误、Host/Origin、请求体限制、ready/DB 不可用和无自动上传。实际应用 CSV 路由覆盖正常断开及真实 PostgreSQL 阻塞读取中取消：在测试八秒期限内释放 stream、连接与导出名额。覆盖 UTF-8 解码及启动异常脱敏。保留一条 Starlette/httpx 弃用警告。Fixture 自建容器/卷/私有目录和任务缓存已删除。独立审查与集成检查通过；完整页面与容器交付属于后续任务。
+
 ### 后续计划自动化入口
 
 在 `/tmp` 创建唯一 Python 3.12 venv，安装 `requirements-dev.lock`，再执行 `pip install --no-build-isolation --no-deps -e .`。使用临时 cache/data 及上面已测试的 M3-01 PostgreSQL launcher，不得使用生产或继承的部署连接设置。浏览器测试需要开发 Chromium。M3-08/09 必须在验收前补齐测试过的容器/恢复命令。以下后续入口在对应任务记录证据前仍属于计划。
@@ -333,7 +345,8 @@ WATT_TEST_POSTGRES=1 /tmp/watt-m3-run.Qsb5bu/venv/bin/python -m pytest tests/tes
 | M3-03 注册/授权 | 52 项注册、84 项定向检查；独立审查与集成检查通过 |
 | M3-04 原子接收 | 115 项接收/上传检查；独立审查与集成检查通过 |
 | M3-05 查询/状态/CSV | 22 项真实 PostgreSQL 检查；独立审查与集成检查通过 |
-| M3-06–M3-10 实现与任务检查 | 待执行 |
+| M3-06 认证/HTTP | 17 项真实 PostgreSQL 检查；独立审查与集成检查通过 |
+| M3-07–M3-10 实现与任务检查 | 待执行 |
 | 完整 M1/M2 回归与集成静态/安装包检查 | 待执行 |
 | 真实 PostgreSQL 并发/原子性/CSV 检查 | 任务检查通过；最终集成检查待执行 |
 | 本地 Compose、Caddy 验证、自动浏览器 walkthrough | 待执行 |

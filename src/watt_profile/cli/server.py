@@ -1,11 +1,11 @@
-"""Server process entrypoint skeleton."""
+"""Single-worker Server process entrypoint."""
 
 from __future__ import annotations
 
 import argparse
 import sys
 
-from watt_profile.server.bootstrap import initialize_storage, set_private_umask
+from watt_profile.server.bootstrap import set_private_umask
 from watt_profile.server.settings import ServerSettings, SettingsError
 
 
@@ -18,16 +18,21 @@ def main(argv: list[str] | None = None) -> int:
     except SettingsError as exc:
         print(str(exc), file=sys.stderr)
         return 2
-    from watt_profile.server.storage.database import MigrationError
+    import uvicorn
 
-    try:
-        engine = initialize_storage(settings)
-    except MigrationError:
-        print("unable to initialize Server storage", file=sys.stderr)
-        return 2
-    engine.dispose()
-    print("Server application is not implemented yet", file=sys.stderr)
-    return 2
+    from watt_profile.server.app import create_app
+
+    uvicorn.run(
+        create_app(settings),
+        host=settings.host,
+        port=settings.port,
+        workers=1,
+        reload=False,
+        proxy_headers=False,
+        access_log=False,
+        timeout_graceful_shutdown=30,
+    )
+    return 0
 
 
 if __name__ == "__main__":  # pragma: no cover
