@@ -2,7 +2,7 @@
 
 > **中文** · [English — source of truth](m3.md)
 
-状态：实现进行中，2026-10-11。M3-01–M3-02 实现、检查与独立审查已完成；M3-03–M3-10 及所有者浏览器验收仍待执行。M1、M2 已验收。第 4 节记录已完成的基础/存储检查，不代表 HTTP 服务端已经可用。
+状态：实现进行中，2026-10-11。M3-01–M3-03 实现、检查与独立审查已完成；M3-04–M3-10 及所有者浏览器验收仍待执行。M1、M2 已验收。第 4 节记录已完成的基础/存储检查，不代表 HTTP 服务端已经可用。
 
 ## 1. 目标与 Agent 使用方式
 
@@ -265,6 +265,19 @@ WATT_TEST_POSTGRES=1 PYTHONDONTWRITEBYTECODE=1 /tmp/watt-m3-run.Qsb5bu/venv/bin/
 
 结果：**74 passed**（32 项存储及 42 项基础/打包），Python 3.12.13/PostgreSQL 17.6。实现阶段另执行了非浏览器/非 Compose 回归：**424 passed**。Ruff 与 diff 检查通过。缺少 DB opt-in 时在连接前拒绝。Fixture 清理核验了自己的容器、匿名卷和私有目录已删除；未使用预存资源。独立审查与集成检查通过；M3-03 及后续仍待执行。
 
+### M3-03 注册与授权检查
+
+已实现严格注册解析、只读隐藏凭据预览、锁内原子提交、typed 站点/设备管理、首个/同一启用凭据的仅哈希存储、禁用及幂等授权/撤销。
+
+```sh
+WATT_TEST_POSTGRES=1 PYTHONDONTWRITEBYTECODE=1 /tmp/watt-m3-run.Qsb5bu/venv/bin/python -m pytest tests/test_server_registration.py tests/test_server_storage.py -q --tb=short -o cache_dir=/tmp/watt-m3-run.Qsb5bu/m3-03-cache --basetemp=/tmp/watt-m3-run.Qsb5bu/m3-03-tests-final
+```
+
+结果：**82 passed**（50 项注册及 32 项存储）；最终注册单独检查：**50 passed**。Ruff 通过。覆盖多行元数据、重复/额外键、预览无写/无秘密、UUID 保留、幂等、A/B 授权、禁用/跨设备/新 Token 冲突、回滚、字面地址搜索、历史保留，以及独立连接竞争（包含强制凭据 UNIQUE 竞争和锁超时）。自建容器/卷/私有目录及任务测试缓存已删除；共享运行工具保留供后续任务使用。独立审查与集成检查通过（84 项注册/存储检查）。
+
+
+审查修复：注册事务已将连接池 checkout 超时转换为固定可重试存储失败。修复后注册测试 **52 项通过**，包含预览/提交真实十连接耗尽、释放、无部分写与成功重试；Ruff 通过，临时资源已删除。
+
 ### 后续计划自动化入口
 
 在 `/tmp` 创建唯一 Python 3.12 venv，安装 `requirements-dev.lock`，再执行 `pip install --no-build-isolation --no-deps -e .`。使用临时 cache/data 及上面已测试的 M3-01 PostgreSQL launcher，不得使用生产或继承的部署连接设置。浏览器测试需要开发 Chromium。M3-08/09 必须在验收前补齐测试过的容器/恢复命令。以下后续入口在对应任务记录证据前仍属于计划。
@@ -294,7 +307,8 @@ WATT_TEST_POSTGRES=1 PYTHONDONTWRITEBYTECODE=1 /tmp/watt-m3-run.Qsb5bu/venv/bin/
 | 双语设计与任务边界 | 已在本文定义 |
 | M3-01 基础实现与任务检查 | 42 passed；Ruff、安装包检查通过；独立审查与集成检查通过 |
 | M3-02 schema/仓储 | 32 项存储检查、74 项定向检查；独立审查与集成检查通过 |
-| M3-03–M3-10 实现与任务检查 | 待执行 |
+| M3-03 注册/授权 | 52 项注册、84 项定向检查；独立审查与集成检查通过 |
+| M3-04–M3-10 实现与任务检查 | 待执行 |
 | 完整 M1/M2 回归与集成静态/安装包检查 | 待执行 |
 | 真实 PostgreSQL 并发/原子性/CSV 检查 | 待执行 |
 | 本地 Compose、Caddy 验证、自动浏览器 walkthrough | 待执行 |

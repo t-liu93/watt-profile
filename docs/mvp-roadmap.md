@@ -2,7 +2,7 @@
 
 > **English — source of truth** · [中文](mvp-roadmap_zh.md)
 
-Status: updated 2026-10-11. M1 is accepted following offline checks, independent review and a fresh-agent walkthrough requested by the owner. M2 implementation, independent review and automated offline/Compose acceptance are complete; the owner accepted the manual walkthrough on 2026-10-11. M3 design is ready with ten ordered atomic tasks; M3 implementation and M4 remain planned. The [M1 completion record](milestone/m1.md#4-checks-and-completion-record) contains verification evidence and limits.
+Status: updated 2026-10-11. M1 is accepted following offline checks, independent review and a fresh-agent walkthrough requested by the owner. M2 implementation, independent review and automated offline/Compose acceptance are complete; the owner accepted the manual walkthrough on 2026-10-11. M3 implementation is in progress through its ten ordered atomic tasks; M3-01–M3-02 passed checks and independent review. Later M3 tasks, owner walkthrough acceptance and M4 remain pending. The [M1 completion record](milestone/m1.md#4-checks-and-completion-record) contains verification evidence and limits.
 
 This roadmap defines the first usable release. See the [high-level architecture](architecture-and-roadmap.md) for the system direction and the [protocol handover](home-automation-energy-handover.md) for reusable source code and its limitations.
 
