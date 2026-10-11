@@ -63,7 +63,9 @@ def test_installed_wheel_includes_logger_resources(tmp_path: Path) -> None:
 from importlib.resources import files
 root = files('watt_profile')
 assert root.joinpath('logger/templates/login.html').is_file()
-assert root.joinpath('logger/static/placeholder.css').is_file()
+assert root.joinpath('logger/templates/index.html').is_file()
+assert root.joinpath('logger/static/logger.css').is_file()
+assert root.joinpath('logger/static/logger.js').is_file()
 assert root.joinpath('logger/storage/migrations/__init__.py').is_file()
 print(root)
 """

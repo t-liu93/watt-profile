@@ -227,7 +227,9 @@ def test_login_throttle_generic_errors_and_forwarded_headers(setup):
                 )
                 assert response.status_code == 401
                 assert "Login failed." in response.text
-                assert "script" not in response.text and "sensitive-input" not in response.text
+                assert values["username"] not in response.text
+                assert "&lt;script&gt;operator&lt;/script&gt;" not in response.text
+                assert "sensitive-input" not in response.text
             assert (await client.post("/login", data=values)).status_code == 429
             setup[3][0] = 60
             assert (await client.post("/login", data=values)).status_code == 401

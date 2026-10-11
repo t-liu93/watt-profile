@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, urlsplit
 from fastapi import Body, FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import Field, StrictBool, StrictInt, StrictStr, ValidationError, model_validator
 from sqlalchemy.exc import SQLAlchemyError
@@ -249,6 +250,7 @@ def create_app(settings: LoggerSettings, *, serial_factory=None, clock=None, aut
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.ready = False
+    app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 
     @app.middleware("http")
     async def security(request, call_next):

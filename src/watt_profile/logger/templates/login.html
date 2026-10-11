@@ -1,6 +1,6 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>Logger login</title></head>
-<body><h1>Logger login</h1>{% if error %}<p role="alert">{{ error }}</p>{% endif %}
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><script src="/static/theme.js"></script><link rel="stylesheet" href="/static/logger.css"><title>Logger login</title></head>
+<body><header><h1>Logger login</h1><button id="theme-toggle" type="button">Light mode</button></header>{% if error %}<p class="login-error" role="alert">{{ error }}</p>{% endif %}
 <form method="post" action="/login">
 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 <label>Username <input name="username" autocomplete="username" required maxlength="64"></label>
