@@ -2,7 +2,7 @@
 
 > **English — source of truth** · [中文](mvp-roadmap_zh.md)
 
-Status: updated 2026-10-11. M1 is accepted following offline checks, independent review and a fresh-agent walkthrough requested by the owner. M2 implementation, independent review and automated offline/Compose acceptance are complete; the owner accepted the manual walkthrough on 2026-10-11. M3–M4 remain planned. The [M1 completion record](milestone/m1.md#4-checks-and-completion-record) contains verification evidence and limits.
+Status: updated 2026-10-11. M1 is accepted following offline checks, independent review and a fresh-agent walkthrough requested by the owner. M2 implementation, independent review and automated offline/Compose acceptance are complete; the owner accepted the manual walkthrough on 2026-10-11. M3 design is ready with ten ordered atomic tasks; M3 implementation and M4 remain planned. The [M1 completion record](milestone/m1.md#4-checks-and-completion-record) contains verification evidence and limits.
 
 This roadmap defines the first usable release. See the [high-level architecture](architecture-and-roadmap.md) for the system direction and the [protocol handover](home-automation-energy-handover.md) for reusable source code and its limitations.
 
@@ -81,8 +81,10 @@ Advance in order: **M1 → M2 → M3 → M4**. Finish each milestone's acceptanc
 | --- | --- | --- | --- |
 | **[M1 — Protocol and contracts](milestone/m1.md)** | Independent project skeleton, extracted P1 parser, electrical mapping and sanitized fixtures, identity/storage/upload contracts | Parser and mapping checks pass; DSMR 5 profile serial defaults and fields are established, with physical meter/cable compatibility verified in M4; contracts distinguish site, device, session, source, and record identity | 1–2 days |
 | **[M2 — Standalone Logger](milestone/m2.md)** | Local configuration and read test, Site UUID and Token, ten-second snapshots, SQLite, collection lifecycle, status; Logger Dockerfile/Compose and local browser walkthrough | Local Compose build/start and browser walkthrough pass; offline setup and collection work; identity, configuration, readings, and pending state survive restart; disconnects recover; moving sites preserves old record ownership | 2–3 days |
-| **M3 — Manually managed server** | Server Dockerfile/Compose with PostgreSQL and Caddy configuration, local browser walkthrough, login, site/device registration, authorized batch ingest, status, filtered queries and CSV | Local Compose build/start and browser walkthrough pass; unknown credentials/sites are rejected; registration permits ingest; replay does not duplicate readings; data can be found by Site UUID; CSV matches queries | 2–3 days |
+| **[M3 — Manually managed server](milestone/m3.md)** | Server Dockerfile/Compose with PostgreSQL and Caddy configuration, local browser walkthrough, login, site/device registration, authorized batch ingest, status, filtered queries and CSV | Local Compose build/start and browser walkthrough pass; unknown credentials/sites are rejected; registration permits ingest; replay does not duplicate readings; data can be found by Site UUID; CSV matches queries | 2–3 days |
 | **M4 — Integrated pilot release** | Logger uploader and backlog recovery, integrated development Compose, validated Logger/server deployment configurations, end-to-end status, hardware/resource verification and operation instructions | Containerized configuration-to-CSV walkthrough passes; network loss, process restart, and lost responses recover; old/new site records remain separate; Pi 4 1 GB and 3B+ verification passes | 1–2 days |
+
+The [M3 design](milestone/m3.md) fixes server contracts and ten ordered atomic tasks, including JSON registration-summary interoperability, atomic PostgreSQL ingest, complete streaming CSV, containers and isolated recovery. It does not implement the M4 Logger uploader; implementation and acceptance are pending.
 
 ### Container delivery and browser acceptance
 

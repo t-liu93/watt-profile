@@ -1,0 +1,254 @@
+# M3：手动管理服务端
+
+> **中文** · [English — source of truth](m3.md)
+
+状态：设计就绪，2026-10-11。M3-01–M3-10 均为计划；实现、检查及浏览器验收尚未执行。M1、M2 已验收。第 4 节是未来的验收记录，不是服务端已经可用的证据。
+
+## 1. 目标与 Agent 使用方式
+
+交付可独立部署的 Centralized Server：管理员登录、粘贴 Logger 注册信息、站点/设备/凭据/授权管理、经授权的原子批量接收、分别展示联系与读数状态、筛选查询及完整 CSV 导出。包含 PostgreSQL、Caddy、容器、隔离合成验证、备份恢复说明和浏览器 walkthrough。**Logger 上传器及集成交付恢复仍属于 M4。**
+
+向 Agent 提供本文和任务 ID。实现前阅读 [Agent Guide](../../AGENTS_zh.md)、相关 [M1 契约](m1_zh.md)、[M2 设计](m2_zh.md)及当前源码。[MVP roadmap](../mvp-roadmap_zh.md)决定范围。按 M3-01 至 M3-10 顺序推进，依赖验收后才进入下一项；每项包含自己的测试。本文不启动委派，也不授权 Git 操作。所有新增路径、命令及测试入口都是**计划交付物**，不是现有能力。
+
+保留 M1 领域/上传类型、规范编码及身份语义。实现 M1 C5 的 PostgreSQL 规范，不复制 Logger 的 SQLite DDL。Logger 唯一产品变化是结构化注册摘要复制，并附带回归检查。设计、任务卡、操作说明和验收证据集中于本文及英文镜像，同步更新；不另建里程碑设计或验收文件。
+
+排除：上传器、自动注册、凭据轮换 UI、客户账号、图表/统计、后台导出、远程配置、硬件验收及生产访问。不得根据静默或最后接收的积压数据推断会话已结束、设备当前位于哪个站点。
+
+## 2. 共享实现契约
+
+### C1. 运行时、配置与边界
+
+使用 Python 3.12、现有 FastAPI/Uvicorn、SQLAlchemy 2、Alembic、Jinja2，新增 Psycopg 3 及其 binary 发行包。重新生成运行/开发锁文件，打包服务端迁移、模板和静态资源。保持现有 Logger 构建可用。使用 PostgreSQL 17、Caddy 2 镜像系列；M3-08 在 Compose 中固定实际可用的具体版本并记录，不使用 `latest`。
+
+计划在 `src/watt_profile/server/` 下划分：settings/bootstrap、storage（schema/migrations/repositories）、registration、ingest、queries/export、auth/app、templates/static。入口为 `python -m watt_profile.cli.server` 与 `python -m watt_profile.cli.server_admin`。共享 `contracts` 不得导入任一应用。仓储/服务操作独立于 HTTP；SQLAlchemy session 短生命周期且不得跨线程共享。同步数据库工作不阻塞事件循环；流式导出在其生命周期内独占独立连接。
+
+| 配置 | 契约 |
+| --- | --- |
+| `WATT_SERVER_DATABASE_URL_FILE` | 必填私有 UTF-8 文件，内容为 SQLAlchemy `postgresql+psycopg` URL；去掉一个末尾换行；不得记录内容 |
+| `WATT_SERVER_ADMIN_USER` | 必填，1–64 字符 |
+| `WATT_SERVER_ADMIN_PASSWORD_FILE` | 必填私有密码文件，去掉一个末尾换行后 16–256 字符；无生产默认值 |
+| `WATT_SERVER_PUBLIC_ORIGIN` | 必填 HTTP/HTTPS origin，无 userinfo/path/query/fragment；用于浏览器 Origin 和可信主机校验 |
+| `WATT_SERVER_HOST`、`WATT_SERVER_PORT` | 默认 `0.0.0.0`、`8080`；Compose 控制外部暴露 |
+| `WATT_SERVER_COOKIE_SECURE` | 默认 true；仅显式开发或所有者管理的隧道 HTTP 环境设为 false |
+
+单 Uvicorn worker，不启用 reload。数据库连接池有界：5 个连接、最多 5 个 overflow，获取连接超时 5 秒；普通事务局部 lock/statement timeout 为 5/30 秒，导出按 C6。启动验证配置，取得 PostgreSQL advisory 迁移锁，升级到已知 head，释放锁后进入 ready。未知/更新 revision 或迁移失败应拒绝启动，不能重置。导入不得创建文件、连接或凭据。关闭时停止接入、关闭流并释放池；Compose 给出 30 秒退出时间。
+
+提供 `server_admin generate-password --output PATH`（0600、随机 `token_urlsafe(24)`、排他创建）及使用同一配置和迁移锁的 `server_admin migrate`。修改密码需重启应用。秘密文件父目录私有、容器只读挂载，进程 umask 为 0077。错误/日志不得暴露带绑定值的 SQL、连接串、请求体或凭据。
+
+### C2. PostgreSQL 存储与事务规则
+
+实现 M1 C5 全部服务端列、可空性、默认值、具名键/检查/索引，独立 revision 从 `server_0001` 开始。不加入 Logger 专属配置、采集状态、指纹或上传状态列。PostgreSQL 时区为 UTC。NUMERIC 不设精度限制且必须非负、有限；验证 UUID 版本/variant、JSON 根类型、canonical UTF-8 字节长度、hash 和复合归属。写入/读取重新验证模型及 canonical/投影一致性。Canonical TEXT 保留小数 scale、null 和数组顺序；JSONB 和数值投影不是 hash 输入。
+
+仓储拥有事务边界。提供类型化的注册预览/提交、站点编辑/列表、凭据/授权管理、凭据认证/联系、原子接收、状态、读数分页/详情和导出迭代操作。不得返回依赖已关闭 session 的 ORM 对象。快照/描述符内容不可变。无级联删除、历史删除端点、保留期任务或自动清理；已接收快照至少保留一年，不受凭据/授权变化或 Logger 清理影响。
+
+用数据库事务级 advisory 锁协调不同应用连接的修改：固定共享 namespace，锁键从 UUID 确定性派生，不使用 Python 随机化 hash。按 device、site、session、source 顺序加锁，同类按 UUID 排序。hash 冲突最多串行化无关操作，不得削弱正确性。注册、站点编辑、凭据/授权修改、接收均使用同一套相关锁；迁移使用独立 namespace。PK/UNIQUE/FK 仍是最终约束。遇到已有描述符/记录键时必须读取并比较不可变内容，不可盲目忽略冲突。并发凭据唯一性冲突映射为安全的注册冲突。
+
+接收事务持有 device/site 锁时重新检查凭据启用状态与授权；撤销也取得相同锁。先取得锁的事务先生效：已获准批次可以先于撤销完成，但后续接收不能使用已撤销权限。测试使用真实 PostgreSQL 独立连接和同步屏障，而非仅顺序重试。锁超时、临时连接失败和数据库不可用返回安全可重试错误；不得确认未提交数据。
+
+### C3. 管理员认证与 HTTP 约定
+
+一个部署管理的管理员账号，与 Logger 操作员及 Bearer 凭据分离。沿用 M2 认证行为，但服务端代码/状态及 Cookie 独立，使用 `watt_server_session`/`watt_server_login`：随机不透明 session ID、最多 32 个 session、八小时过期、退出/重启撤销、15 分钟过期的登录前 CSRF、恒定时间凭据比较，以及有界登录限流（每远端地址每分钟 10 次，最多 1,024 个地址）。无账号数据库、角色或密码重置 UI。仅在 Logger 行为仍有回归覆盖时复用纯 helper；不导入 Logger 应用。
+
+Cookie 为 HttpOnly、SameSite=Lax、path `/`，Secure 按配置。登录及所有认证修改请求均检查 CSRF（含注册预览），存在 Origin 时验证同源。JSON 使用 `X-CSRF-Token`，表单使用隐藏 token。不启用 CORS。渲染值转义；认证页面/API/导出使用 `Cache-Control: no-store`。不得回显携带输入的验证异常。Session Cookie 不能认证 ingest，Bearer Token 不能认证管理接口。
+
+独立部署仅通过 Caddy 公网入口，应用/数据库不发布端口。在此边界剥离/替换不可信转发头，Uvicorn 不启用通配 forwarded-header 信任。应用 origin 判断使用配置的公开 origin；M3 登录限流可以使用直接代理 peer（保守的共享限额），不信任任意客户端头。直接本地开发使用实际 peer。关闭记录 query string/请求体的访问日志；日志可包含路由模板、状态和固定错误码。
+
+页面路由：`GET/POST /login`、`POST /logout`、受保护的 `GET /`、`/sites/{site_id}`、`/devices/{device_id}`。未登录页面重定向登录，管理 API 返回 401。管理前缀为 `/api/admin/v1`；除 204 外成功为 `{"data": ...}`，失败为 `{"error":{"code":"...","message":"fixed safe text"}}`。CSRF 为 403，对象不存在 404，注册冲突 409，输入无效 422，存储不可用 503。代码中定义固定消息。管理 JSON 拒绝额外键，解析前限制请求体 32 KiB。Ingest 保持 M1 独立 envelope 和限制。
+
+`GET /health/live` 检查应用存活；`/health/ready` 用有界轻量查询检查迁移初始化及数据库可用性。两者未认证响应仅含布尔值；初始化前、关闭中或 DB 失败时 ready 返回 503。空数据或禁用设备是合法 ready 状态。
+
+### C4. 注册、凭据与授权
+
+注册摘要为恰含 `site_id,address,description,device_id,token` 的 JSON 对象，对应当前 Logger API 的 data 对象，不带 `data` envelope。UUID 为 v4；地址/描述沿用 M2 的 500/2,000 字符限制，可为空或多行。Token 匹配 Logger 持久化的 `token_urlsafe(32)` 格式（43 个 URL-safe ASCII 字符）。拒绝重复 JSON 键、格式错误/多余字段和超限输入，使用固定安全错误。
+
+M3-07 将 Logger 可复制 textarea 改为格式化 JSON，屏幕保留可读标签。本地注册 API 和 Token 生成不变。不要求兼容旧标签文本解析。两端页面都不得把摘要放入 localStorage/sessionStorage 或 URL；提交成功、取消、导航/退出或认证过期时清除。预览隐藏 Token，服务端不返回 Token。
+
+预览说明 site/device/credential/grant 将创建还是复用，元数据不一致时显示已有服务端地址/描述；不写数据。提交接收原始校验后的摘要，在锁内重新评估，一次事务完成所有注册写入。不能覆盖已有站点元数据、替换凭据或恢复禁用凭据。预览不是状态不变的保证；提交返回实际应用/复用结果及当前元数据。
+
+同 device/Token/site 重复注册幂等。已知设备以相同启用 Token 注册额外站点，保留旧授权。Token hash 属于其他设备、匹配 Token 已禁用，或已有凭据的设备提交新 Token 时返回 409，不能部分创建 site/device。已有但无凭据的设备可注册首个凭据。只存高熵 Token 的 SHA-256；普通管理输出不得返回摘要或 Token。轮换/重新启用不属于 M3。可通过以下接口分别创建设备/站点；不按地址匹配身份。
+
+| 方法及管理相对路径 | 输入 → 结果 |
+| --- | --- |
+| `POST /registrations/preview` | 摘要 → 已有元数据和 site/device/credential/grant 的 `create/reuse` 动作；仅隐藏凭据的指示 |
+| `POST /registrations` | 摘要 → site/device/credential ID、当前元数据、应用/复用动作 |
+| `GET /sites` | 可选 `site_id` 精确 UUID 或 `q` 字面量、不区分大小写的地址子串（二者互斥），`offset=0,limit=50`（1–100）→ `{items,total}`，按站点 UUID 排序 |
+| `POST /sites` | `{site_id,address,description}` → 创建/已有站点；调用方提供 UUID，已有元数据不变 |
+| `PATCH /sites/{site_id}` | address/description 非空字段子集 → 显式元数据修改 |
+| `GET /devices`、`POST /devices` | 同站点分页 / `{device_id}` → 列表或创建/已有设备 |
+| `GET /devices/{device_id}` | → 设备状态、凭据 ID/创建/禁用时间和授权站点 ID；无 hash |
+| `POST /devices/{device_id}/credentials` | `{token}` → 首个或相同启用凭据 ID；冲突规则同注册 |
+| `POST /devices/{device_id}/credentials/{credential_id}/disable` | `{}` → 凭据状态；已禁用则无操作 |
+| `PUT /devices/{device_id}/sites/{site_id}` | `{}` → 授权；两对象必须已存在，幂等 |
+| `DELETE /devices/{device_id}/sites/{site_id}` | → 204；对象存在而授权不存在则无操作 |
+
+站点修改及破坏性访问变更按需要在 UI 确认：禁用/撤权说明 Logger 待上传记录仍保持 pending，历史读数保留。新增站点授权从不移除旧授权。设备 ID、站点 UUID 不可编辑。
+
+### C5. 批量接收与联系状态
+
+严格实现 M1 C6：`POST /api/v1/ingest/batches`、Bearer Token、JSON、schema v1，最多 200 条、单快照 16,384 canonical 字节、请求体接收字节 4,194,304。即使无 Content-Length 也限制流式读取；拒绝压缩体。使用现有 `validate_upload_body`、canonical codec 和错误类型；不支持的 media/encoding 返回安全 `invalid_payload`。不泄漏框架验证详情，不将记录写入日志。
+
+用 Token hash 和启用凭据认证。有效认证在独立短事务中更新 `last_authenticated_contact_at`，数据库单调更新（与原值取 `greatest`）。未知/禁用凭据不更新。验证失败、设备不匹配或未知/未授权站点仍可计为认证联系；入口超限拒绝可不计。联系状态存储失败返回 503。此时间证明认证，不证明接收成功或读数新鲜。
+
+随后验证设备身份和完整批次，在 C2 锁内原子重新检查授权、创建缺少的 point/session/source、插入读数。Devices/sites/grants 必须已存在；point 从站点 UUID 派生。比较全部不可变描述符字段，包括仅重复数据批次携带的描述符。相同记录键/hash 为重复，不同 hash 为整批 `record_conflict`；描述符不一致为 `descriptor_conflict`。插入新行后遇到任一冲突，新增行及新描述符均不得提交。跨设备复用 session/source ID 必须失败，不得改写归属。
+
+提交成功后才返回 M1 200 确认，按请求顺序包含全部记录 ID（含已存在重复记录）。401/403/409/413/422/503 使用 M1 固定错误码/状态。提交后响应丢失通过重试相同批次并确认行数不变来验证；实际 Logger 响应丢失恢复属于 M4。提交后的失败不得描述为已知回滚。
+
+### C6. 状态、查询与完整 CSV
+
+站点列表/详情显示 UUID/地址/描述、已接收记录数、最新已接收 `received_at` 和当前授权设备。设备分别显示 `last_authenticated_contact_at` 与全部历史已接收 `received_at` 最大值。缺失显示“Unavailable”，不编造在线/离线阈值。站点时间来自本站读数，不来自最后新增授权的设备。服务端会话列表仅显示不可变描述符，不编造 open/completed 状态。
+
+| 方法及管理相对路径 | 契约 |
+| --- | --- |
+| `GET /sites/{site_id}` | 站点元数据/状态与授权设备 ID |
+| `GET /sites/{site_id}/sessions` | 同 C4 分页，按 `started_at,session_id` 排序，可按设备过滤 |
+| `GET /sites/{site_id}/readings` | 下述过滤器及 `offset=0,limit=50`（1–200）→ `{items,total}`；items 为完整 M1 Snapshot |
+| `GET /sites/{site_id}/readings/{device_id}/{record_id}` | 属于该站点的完整 Snapshot，否则 404 |
+| `GET /sites/{site_id}/readings.csv` | 同一过滤器、无分页 → 完整流式 CSV 附件 |
+
+读数过滤器：可选 `session_id`、`device_id`、`received_from`、`received_before`。时间必须为带时区的 ISO 8601，归一化 UTC，左闭右开；同时提供上下界时要求 start < end。合法但不匹配的 session/device 返回空结果，错误 UUID/时间为 422。默认不限制时间。按 `(received_at,device_id,record_id)` 升序；单页 total/items 共用读快照。UI 标明 UTC，不得静默按本地时间解释。表格展示常用指标，详情显示全部 18 指标、脱敏字段和质量；导出全部筛选结果，而非当前页。
+
+表格和导出共用过滤解析/条件构造器。读取 canonical Snapshot 文本，校验后序列化，保留精确小数字符串 scale。导出使用独立只读 REPEATABLE READ 事务，服务端 cursor 每块最多读取 500 行，statement timeout 为 30 分钟。无行数上限、服务端临时文件、后台任务或全量内存缓存。每进程最多两个并发导出，超出时在流开始前返回固定 503。客户端取消、超时、完成或生成器异常均关闭 cursor/事务/连接并释放名额。响应头发出后发生错误则关闭不完整下载，不能追加错误行或宣称完成。这是同步、不可续传的导出。
+
+CSV 使用无 BOM 的 UTF-8、逗号分隔、CRLF 行和标准 CSV 引号，固定安全文件名 `watt-profile-readings.csv`。列顺序：`schema_version,device_id,record_id,site_id,session_id,source_id,measurement_point_id,meter_time_raw,meter_time_utc,received_at,sampled_at`，随后是 M1 C5 表格顺序的 18 个指标，最后为 `fields,quality`。嵌套列为紧凑 canonical JSON，保留 null/数组顺序；标量 null 为空单元格，真实零仍为零，时间按 M1 UTC 序列化。无站点自由文本、Token、指纹、内部 hash、重复 canonical 或接收落库时间。字符串来自已校验 Snapshot 语法，不是任意电子表格公式。空结果仅导出表头。分别发起的查询/导出可观察到新增数据；一致性指相同过滤/表示及每次请求内稳定快照，不承诺跨请求冻结数据集。
+
+### C7. 浏览器行为
+
+使用小型 English HTML 页面和最少 JavaScript，匹配 Logger 明暗主题行为（浏览器只持久化主题偏好）。首页提供站点搜索、设备和注册入口。注册流程：粘贴 JSON → 隐藏 Token、显示已有元数据差异的预览 → 确认 → 带站点/设备链接的结果。站点元数据编辑、授权/凭据操作独立。刷新不得重复提交修改。安全展示验证、冲突、登录过期、数据库不可用状态及重新加载/重试提示。
+
+站点页提供状态、session/device/time 过滤、分页读数、完整详情和 CSV。设备页提供联系/读数时间、授权站点、凭据禁用。不得重新展示 Token、隐式撤销授权或从积压数据推断“当前站点”。首次 ingest 前空/未注册状态仍可使用。可见页面每 10 秒轮询状态，不重叠，隐藏时暂停；不在操作员阅读时自动刷新读数表。表单标签和键盘操作可用，禁用/撤销需显式确认。UI 行为不能替代服务端校验。
+
+### C8. 容器、合成验证与恢复
+
+交付 `deploy/server/Dockerfile`、独立 `deploy/server/compose.yml`、`Caddyfile` 和脱敏 `.env.example`；根 `docker-compose.dev.yml` 新增 `server`、`server-db` 和范围受限的开发凭据初始化。保留仅启动 Logger 的 `up logger` 行为。仅服务端 `up server` 启动其 DB/setup 依赖，不启动 Logger。使用项目专属卷/网络，无外部卷、主机串口映射或生产配置。应用 UID/GID 为 10001；root initializer 仅准备挂载卷后退出。
+
+开发发布服务端 `127.0.0.1:${WATT_DEV_SERVER_PORT:-8081}:8080`，Logger 保留 8080，不发布 PostgreSQL，不需要 Caddy/域名。仅开发管理员为 `admin` / `testtesttesttest`；setup 将密码/DB URL 放入私有卷，不作为独立部署默认值。以 `WATT_DEV_IMAGE_TAG` 和唯一项目名隔离镜像/资源。独立部署 PostgreSQL 持久化，要求私有密码/URL 文件，Caddy HTTPS 要求域名并持久化证书/配置卷。仅 Caddy 发布 80/443。正常 down/recreate 保留卷。提供所有者管理隧道 HTTP 的显式 Caddy/origin/cookie 配置替代，不配置 WireGuard。
+
+健康依赖等待 PostgreSQL 和应用 ready。保持 PostgreSQL durability 默认值。启动迁移不能静默替换数据库或重生成管理员凭据。全部资源打包到服务端镜像，构建/运行本地主机架构。M3 不要求服务端 ARM64，但现有 Logger 目标/构建行为必须保持有效。
+
+提供 `python -m watt_profile.cli.server_demo prepare --output NEW_DIRECTORY` 及 `... ingest --directory DIRECTORY --server-origin ORIGIN`。这是仅开发 CLI，不是启动 hook 或公开 seed API。Prepare 创建私有合成注册 JSON 及有效 M1 批次，覆盖两站点、一设备、三会话（A→B→A）、null/零/scale 敏感指标和安全字段。以一次捕获 UTC 时间的固定相对偏移及新 UUID/Token 生成，并保存以便重复重放。Ingest 从私有 Token 文件读取，调用真实 HTTP 端点并验证完整确认；不直接写数据库、不打印凭据。默认 origin 仅允许 loopback；Compose 用已说明的显式 `--allow-development-network` 允许临时网络中的 `server` 服务。不提供任意远端主机选项。`--site A|B` 支持分步骤注册和拒绝验证。
+
+使用 PostgreSQL `pg_dump --format=custom` 一致备份，在私有临时目录排他创建输出。用 `pg_restore --exit-on-error --no-owner --no-acl` 恢复到新建、隔离、空数据库，不能覆盖已有数据库。命令使用秘密文件/容器环境，不把密码放入命令参数/日志。验证 ID、canonical hash、描述符、凭据摘要/禁用状态、授权，并对恢复实例认证/查询。部署管理员密码和 Caddy 设置属于独立配置，不包含在 DB 备份。M3-09 必须将这些说明补全为实际测试过的 Compose 命令、路径、环境设置及 walkthrough 创建资源的清理步骤。
+
+## 3. 原子实现任务
+
+所有任务运行 Ruff check 和 format-check。测试使用合成数据；涉及数据库行为时使用真实隔离 PostgreSQL，不能用 SQLite 替代。单元/HTTP 测试不得依赖后续 UI/容器任务。M3-01 提供仅测试 PostgreSQL fixture launcher，使 M3-02 起可在部署 Compose 完成前验收。
+
+### M3-01 — 运行基础
+
+依赖：已验收 M1/M2。契约：C1、C8 打包。
+
+- 交付服务端 package/CLI 骨架、配置校验、排他密码生成、依赖锁/资源和显式临时 PostgreSQL 测试 launcher。无导入副作用。
+- Launcher 启动唯一名称的临时 PostgreSQL 17 容器，仅 loopback 随机端口、无已有卷；等待 ready、提供私有连接配置，仅清理自己创建的资源。DB 测试缺少显式 opt-in 时必须拒绝，不能使用环境里的部署 URL。
+- 验收错误配置/秘密权限拒绝、密码覆盖拒绝、安装后资源访问及 launcher 启动/清理。边界：无业务 schema、注册或 HTTP 服务。
+- 检查：`python -m pytest tests/test_server_bootstrap.py tests/test_package.py -q`；第 4 节记录精确 launcher/DB 测试命令。
+
+### M3-02 — PostgreSQL schema 与仓储
+
+依赖：M3-01。契约：C2、M1 C5。
+
+- 交付 schema、`server_0001`、迁移锁、启动集成和基础类型化仓储，暴露 `server_admin migrate`。
+- 验收首次/重复迁移、未知 revision 拒绝、并发迁移互斥、直接 SQL 约束/复合归属、全部字段 canonical/Decimal/null/hash 往返、事务回滚；检查投影列和独立 revision 链。
+- 边界：仅合成 fixture，无认证、接收端点或页面。检查：通过 M3-01 DB launcher 运行 `python -m pytest tests/test_server_storage.py -q`。
+
+### M3-03 — 注册与授权服务
+
+依赖：M3-02。契约：C2、C4。
+
+- 交付严格摘要模型、预览/提交、站点/设备操作、仅 hash 的凭据注册/禁用和带锁授权操作。
+- 验收多行元数据、重复键拒绝、预览无写入/秘密、已知 UUID 元数据保留、幂等、A/B 授权保留、禁用/跨设备/新 Token 冲突、回滚与并发注册。所有访问变更保留历史行。
+- 边界：仅服务层，无管理 HTTP 或 Logger UI 修改。检查：隔离 PostgreSQL 下 `python -m pytest tests/test_server_registration.py -q`。
+
+### M3-04 — 原子接收服务
+
+依赖：M3-03。契约：C2、C5、M1 C6。
+
+- 交付独立于 HTTP 的凭据/联系和事务批次接收；复用 canonical 验证器，返回类型化 M1 确认/错误。
+- 验收未知/禁用 Token、不匹配/未授权站点、拒绝载荷的联系语义、描述符/记录冲突、全重复/混合批次、新描述符/行回滚、提交后重试。独立连接/屏障覆盖相同/不同内容并发重放、跨设备描述符碰撞及并发禁用/撤权。
+- 边界：无网络路由/上传器。检查：隔离 PostgreSQL 下 `python -m pytest tests/test_server_ingest.py tests/test_upload_contract.py -q`。
+
+### M3-05 — 查询、状态与流式 CSV
+
+依赖：M3-04。契约：C6。
+
+- 交付类型化过滤/分页/状态服务、Snapshot 详情和有界导出迭代器，取消时清理资源。
+- 验收时间区间边界、同时间排序、字面地址搜索、空结果、组合过滤、积压与联系时间区分、全部字段/null/小数 scale、并发写入下稳定导出，以及固定数据集的查询/CSV 等价。验证有界读取、导出名额限制和中断资源释放，不全量加载导出。
+- 边界：无 HTML/HTTP，隔离/cursor 使用真实 PostgreSQL。检查：`python -m pytest tests/test_server_queries.py tests/test_server_export.py -q`。
+
+### M3-06 — 认证与 HTTP 服务
+
+依赖：M3-05。契约：C1、C3–C6。
+
+- 交付应用生命周期、登录/session/CSRF、完整管理/ingest 路由、有界请求体读取、流式响应和 readiness，包含最小登录表单。
+- 验收认证隔离、过期/退出/重启、限流、Origin/CSRF/host 检查、安全错误/隐私、chunked 超限、禁用凭据行为、精确 M1 响应及 DB 不可用健康状态。测试 HTTP 断开释放导出资源，断言无自动向外上传。
+- 边界：无完整 dashboard 或容器交付。检查：隔离 PostgreSQL 下 `python -m pytest tests/test_server_api.py tests/test_server_auth.py -q`。
+
+### M3-07 — 管理页面与 Logger 摘要互通
+
+依赖：M3-06。契约：C4、C6–C7。
+
+- 交付 dashboard/site/device 流程和 Logger JSON 复制变化，保留当前注册 API 和可读展示。
+- 验收键盘操作、粘贴/预览/注册、多行元数据、已有站点提示且不覆盖、显式修改、授权/禁用确认、时间、过滤/详情/CSV、空/错误/过期状态和秘密清除。浏览器测试把实际 Logger 生成摘要传到服务端，不另造数据形状。
+- 边界：无上传器、凭据轮换或 UI 框架迁移。检查：`python -m pytest tests/browser/test_server_ui.py tests/browser/test_logger_ui.py tests/test_logger_api.py -q`；隔离应用/DB/fake serial、开发 Chromium。
+
+### M3-08 — 容器交付
+
+依赖：M3-07。契约：C8。
+
+- 交付服务端 Dockerfile/独立 Compose/Caddy/example，扩展根开发 Compose，双语 README 增加入口链接。新增构建/启动/ready/持久化自动化和第 4 节精确操作命令。
+- 验收仅服务端和仅 Logger 启动、DB 迁移、非 root 应用、私有文件、开发仅 loopback、DB 不发布、重建保留数据、包资源，以及隔离环境 Caddy 配置校验（不请求公网证书）。记录具体镜像版本和运行目标。
+- 边界：无生产部署、公网证书或硬件通过声明。检查：显式唯一项目下 `python -m pytest tests/integration/test_server_compose.py -q`，以及现有 Logger Compose 回归、Caddy 验证命令。
+
+### M3-09 — 合成 walkthrough 数据与隔离恢复
+
+依赖：M3-08。契约：C8、C4–C6。
+
+- 交付 demo CLI、可重复的已保存批次、真实 HTTP 提交/重放，以及第 4 节精确私有备份/新数据库恢复说明。
+- 验收注册前拒绝、A 后 B 注册/接收、A→B→A 归属、重放无重复、撤权/禁用后历史查询、备份恢复等价。恢复服务使用独立开发配置/端口，不触碰源环境。仅清理创建资源。
+- 边界：无公开 seed 端点、自动样例插入或生产备份。检查：`python -m pytest tests/test_server_demo.py tests/integration/test_server_recovery.py -q` 及已记录的隔离 walkthrough 命令。
+
+### M3-10 — 服务端综合验收与交接
+
+依赖：M3-01–M3-09。契约：全部。
+
+- 交付真实 HTTP 注册→接收→查询→CSV 集成、全部回归/Compose/浏览器检查及第 4 节准确双语证据。运行 M1/M2 回归，验证 Logger 正常记录仍为 pending。
+- 验收前面全部任务条件、重建持久化、查询/导出保真、浏览器 walkthrough、备份恢复清理记录。区分自动化 walkthrough 与所有者验收；所需检查和所有者 walkthrough 验收后才标记 M3 已验收。
+- 边界：无新功能、上传器/硬件验收或额外里程碑报告文件。检查：`python -m pytest tests/test_m3_pipeline.py -q` 及完整第 4 节检查。
+
+## 4. 检查与完成记录
+
+### 计划自动化入口
+
+在 `/tmp` 创建唯一 Python 3.12 venv，安装 `requirements-dev.lock`，再执行 `pip install --no-build-isolation --no-deps -e .`。使用临时 cache/data 及显式 M3-01 PostgreSQL launcher，不得使用生产或继承的部署连接设置。浏览器测试需要开发 Chromium。M3-01 必须在 M3-02 前记录精确 launcher 用法；M3-08/09 必须在验收前补齐测试过的容器/恢复命令。不得宣称以下示意入口今天已经可运行。
+
+- 第 3 节固定各任务 pytest 入口，DB 用例通过隔离 PostgreSQL harness 运行。
+- 完整离线回归：`python -m pytest -q`；显式 opt-in 临时 Compose 测试并提供项目设置，不能把跳过的集成测试当作通过。
+- 静态检查：`python -m ruff check .`、`python -m ruff format --check .`。
+- 安装包检查：在 checkout 外移除继承 `PYTHONPATH` 后导入 server、contracts 和包资源。
+- Compose：唯一 `watt-m3-...` 项目及 `WATT_DEV_IMAGE_TAG`、未占用 loopback 端口、构建/启动/ready、浏览器 walkthrough、强制重建与持久化、隔离恢复及清理。创建前检查是否已有同名资源。
+- 独立部署：以合成临时配置渲染 Compose，无公网 ACME 流量验证 Caddy，检查秘密/mount/port 和持久卷。真实公网 HTTPS 部署属于 M4。
+
+### 计划浏览器 walkthrough
+
+1. 启动隔离开发服务端，准备私有合成 fixture 目录；打开 `http://127.0.0.1:8081`（或指定端口），用已记录的开发管理员登录。
+2. 注册前提交 A 的已准备批次：预期 401、无行。浏览器粘贴 A JSON，查看隐藏 Token 的预览并确认。再次经 demo CLI 提交，预期完整确认。
+3. 按 UUID/地址查找 A，查看全部指标、null、质量、会话。按 device/session/UTC 区间筛选，导出 CSV，对比所有匹配记录 ID/值，而非仅可见页。
+4. 重放后行数不变。修改复制元数据后再次预览/注册 A：已有元数据不变；通过站点表单显式编辑。
+5. 同设备注册 B，接收 B 及之后的 A 会话；验证归属分离、两授权都保留。联系时间推进独立于旧积压读数时间。
+6. 撤销 B，验证 B 接收被拒绝、A 仍允许；禁用凭据，后续接收均拒绝。历史读数/导出仍可用。
+7. 使用原卷重建 app/DB 容器：管理员重新登录，ID、元数据、授权、禁用状态、读数持久化。执行隔离备份/恢复 walkthrough 并比较恢复状态。
+8. 仅停止/移除本次容器、网络、临时卷、镜像标签、fixture/备份目录、临时凭据。不对独立部署或已有项目使用破坏性卷清理。
+
+### 验收记录
+
+| 项目 | 状态 / 证据 |
+| --- | --- |
+| 双语设计与任务边界 | 已在本文定义；实现未开始 |
+| M3-01–M3-10 实现与任务检查 | 待执行 |
+| M1/M2 回归、Ruff、安装包检查 | 待执行 |
+| 真实 PostgreSQL 并发/原子性/CSV 检查 | 待执行 |
+| 本地 Compose、Caddy 验证、自动浏览器 walkthrough | 待执行 |
+| 隔离备份恢复与资源清理 | 待执行 |
+| 所有者浏览器 walkthrough 验收 | 待执行 |
+| 公网部署、Logger 上传器/恢复、物理硬件 | M4，不由 M3 声明通过 |
+
+每完成一项，在此同步双语追加实际命令、结果、环境/镜像版本、重要修复、不可用检查和清理证据。设计就绪不等于实现验收。本次编写设计未执行任何服务端、数据库、浏览器或部署检查。
