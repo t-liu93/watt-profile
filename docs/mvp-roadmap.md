@@ -2,7 +2,7 @@
 
 > **English — source of truth** · [中文](mvp-roadmap_zh.md)
 
-Status: updated 2026-10-11. M1 is accepted following offline checks, independent review and a fresh-agent walkthrough requested by the owner. M2 implementation, independent review and automated offline/Compose acceptance are complete; the owner accepted the manual walkthrough on 2026-10-11. M3 implementation is in progress through its ten ordered atomic tasks; M3-01–M3-02 passed checks and independent review. Later M3 tasks, owner walkthrough acceptance and M4 remain pending. The [M1 completion record](milestone/m1.md#4-checks-and-completion-record) contains verification evidence and limits.
+Status: updated 2026-10-12. M1 and M2 are accepted; the owner accepted the M2 manual walkthrough on 2026-10-11. M3 implementation and automated regression/HTTP/Chromium/Compose/recovery checks are complete. M3-01–M3-10 independent reviews passed; owner browser walkthrough acceptance remains pending. M3 is not yet accepted; M4 uploader, integrated delivery recovery, public deployment and hardware verification remain pending. The [M3 completion record](milestone/m3.md#4-checks-and-completion-record) records evidence and limits.
 
 This roadmap defines the first usable release. See the [high-level architecture](architecture-and-roadmap.md) for the system direction and the [protocol handover](home-automation-energy-handover.md) for reusable source code and its limitations.
 
@@ -71,7 +71,7 @@ Ten-second snapshots reduce the stored record count to at most 8,640 per day or 
 - Mark records uploaded only after the server's persistence confirmation. A timeout or lost response leaves them pending; retry the same IDs. Keep upload-state updates grouped by confirmed batch.
 - Track the last authenticated device contact separately from the latest reading timestamp. A successful contact during backlog recovery does not imply that fresh measurements are arriving.
 
-The [M1 contracts](milestone/m1.md) fix the ingest endpoint, payload schema, limits, migration boundaries, and serial lifecycle before dependent implementation. M1 executable types, diagnostic probe and offline checks are implemented and independently reviewed; C5 storage remains a specification for M2/M3. The behaviors and identity boundaries above are agreed.
+The [M1 contracts](milestone/m1.md) fix the ingest endpoint, payload schema, limits, migration boundaries, and serial lifecycle before dependent implementation. M1 executable types, diagnostic probe and offline checks are implemented and independently reviewed; C5 storage is implemented in the M2 SQLite and M3 PostgreSQL repositories. The behaviors and identity boundaries above are agreed.
 
 ## 4. Milestones and acceptance
 
@@ -84,11 +84,11 @@ Advance in order: **M1 → M2 → M3 → M4**. Finish each milestone's acceptanc
 | **[M3 — Manually managed server](milestone/m3.md)** | Server Dockerfile/Compose with PostgreSQL and Caddy configuration, local browser walkthrough, login, site/device registration, authorized batch ingest, status, filtered queries and CSV | Local Compose build/start and browser walkthrough pass; unknown credentials/sites are rejected; registration permits ingest; replay does not duplicate readings; data can be found by Site UUID; CSV matches queries | 2–3 days |
 | **M4 — Integrated pilot release** | Logger uploader and backlog recovery, integrated development Compose, validated Logger/server deployment configurations, end-to-end status, hardware/resource verification and operation instructions | Containerized configuration-to-CSV walkthrough passes; network loss, process restart, and lost responses recover; old/new site records remain separate; Pi 4 1 GB and 3B+ verification passes | 1–2 days |
 
-The [M3 design](milestone/m3.md) fixes server contracts and ten ordered atomic tasks, including JSON registration-summary interoperability, atomic PostgreSQL ingest, complete streaming CSV, containers and isolated recovery. It does not implement the M4 Logger uploader; implementation and acceptance are pending.
+The [M3 design](milestone/m3.md) fixes server contracts and ten ordered atomic tasks, including JSON registration-summary interoperability, atomic PostgreSQL ingest, complete streaming CSV, containers and isolated recovery. Implementation and automated checks are complete; Independent reviews passed; owner acceptance remains pending. It does not implement the M4 Logger uploader.
 
 ### Container delivery and browser acceptance
 
-From M2 onward, each milestone that adds or changes a runnable module must deliver its container build and Docker Compose configuration in the same milestone. A module is not complete with source code alone. Later chart/report workers, Modbus support and operational modules follow the same rule: extend the relevant image/Compose service, or add a separate service when needed, together with its configuration and verification. These are required future deliverables; the files do not exist in M1.
+From M2 onward, each milestone that adds or changes a runnable module must deliver its container build and Docker Compose configuration in the same milestone. A module is not complete with source code alone. Later chart/report workers, Modbus support and operational modules follow the same rule: extend the relevant image/Compose service, or add a separate service when needed, together with its configuration and verification. M2 Logger and M3 Server container files and automated checks are implemented; future modules must follow the same delivery rule.
 
 | Stage | Required container deliverables | Local acceptance entry point |
 | --- | --- | --- |

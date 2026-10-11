@@ -343,7 +343,9 @@ def test_device_creation_grants_confirmations_errors_and_expiry(server_browser):
     page.get_by_label("Site UUID", exact=True).fill(new_site)
     page.get_by_role("button", name="Add site grant").click()
     expect(page.locator("#grants")).to_contain_text(new_site)
-    page.goto(origin)
+    # Finish the dashboard startup refresh before exercising an explicit retry.
+    # Otherwise retry can correctly coalesce with a request admitted before auth.clear().
+    page.goto(origin, wait_until="networkidle")
     page.route(
         "**/registrations/preview",
         lambda route: route.fulfill(
