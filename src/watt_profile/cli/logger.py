@@ -5,7 +5,10 @@ from __future__ import annotations
 import argparse
 import sys
 
-from watt_profile.logger.bootstrap import InstanceBusy, installation_lock, set_private_umask
+import uvicorn
+
+from watt_profile.logger.app import create_app
+from watt_profile.logger.bootstrap import InstanceBusy
 from watt_profile.logger.settings import LoggerSettings, SettingsError
 
 
@@ -14,10 +17,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.parse_args(argv)
     try:
         settings = LoggerSettings.from_env()
-        set_private_umask()
-        with installation_lock(settings.data_dir):
-            print("Logger application service is not available yet.", file=sys.stderr)
-            return 2
+        uvicorn.run(
+            create_app(settings),
+            host=settings.host,
+            port=settings.port,
+            workers=1,
+            reload=False,
+            access_log=False,
+            proxy_headers=False,
+        )
+        return 0
     except (SettingsError, InstanceBusy) as exc:
         print(str(exc), file=sys.stderr)
         return 1

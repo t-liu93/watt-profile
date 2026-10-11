@@ -23,7 +23,13 @@ from watt_profile.contracts.domain import (
     SanitizedField,
     UtcTime,
 )
-from watt_profile.logger.deployment import DeploymentCommand, DeploymentOperations, SettingsCommand
+from watt_profile.logger.deployment import (
+    DeploymentCommand,
+    DeploymentOperations,
+    SettingsCommand,
+    SettingsEdit,
+    SiteEdit,
+)
 from watt_profile.logger.maintenance import StorageHealthGuard, is_database_corruption
 from watt_profile.logger.sampler import WindowSampler
 from watt_profile.logger.storage.repository import LoggerRepository, Site
@@ -275,11 +281,17 @@ class LoggerRuntime:
     def save_settings(self, command: SettingsCommand):
         return self._command(lambda: self.operations.save_settings(command, self.clock.utc_now()))
 
+    def patch_settings(self, command: SettingsEdit):
+        return self._command(lambda: self.operations.patch_settings(command, self.clock.utc_now()))
+
     def create_site(self, **values) -> Site:
         return self._command(lambda: self.operations.create_site(**values))
 
     def edit_site(self, site: Site):
         return self._command(lambda: self.operations.edit_site(site))
+
+    def patch_site(self, site_id: UUID, command: SiteEdit):
+        return self._command(lambda: self.operations.patch_site(site_id, command))
 
     def confirm_meter_change(self, session_id: UUID):
         def action():

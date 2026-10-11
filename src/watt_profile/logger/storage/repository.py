@@ -650,9 +650,84 @@ class LoggerRepository:
             ).all()
             return tuple(self._descriptors(session, session_id)[0] for session_id in ids)
 
+    def get_site(self, site_id: UUID) -> Site:
+        with self._transaction() as session:
+            row = (
+                session.execute(select(db.sites).where(db.sites.c.site_id == str(site_id)))
+                .mappings()
+                .one_or_none()
+            )
+            if row is None:
+                raise LookupError("not_found")
+            return Site.model_validate(row)
+
+    def get_session(self, session_id: UUID) -> LocalSession:
+        with self._transaction() as session:
+            if (
+                session.scalar(
+                    select(db.sessions.c.session_id).where(
+                        db.sessions.c.session_id == str(session_id)
+                    )
+                )
+                is None
+            ):
+                raise LookupError("not_found")
+            return self._descriptors(session, str(session_id))[0]
+
+    def page_sites(self, offset: int, limit: int) -> dict[str, object]:
+        with self._transaction() as session:
+            total = session.scalar(select(func.count()).select_from(db.sites))
+            rows = session.execute(
+                select(db.sites).order_by(db.sites.c.site_id).offset(offset).limit(limit)
+            ).mappings()
+            return {"items": tuple(Site.model_validate(row) for row in rows), "total": total}
+
+    def page_sessions(self, offset: int, limit: int) -> dict[str, object]:
+        with self._transaction() as session:
+            total = session.scalar(select(func.count()).select_from(db.sessions))
+            ids = session.scalars(
+                select(db.sessions.c.session_id)
+                .order_by(db.sessions.c.started_at, db.sessions.c.session_id)
+                .offset(offset)
+                .limit(limit)
+            ).all()
+            items = []
+            for identifier in ids:
+                local, binding = self._descriptors(session, identifier)
+                counts = session.execute(
+                    select(
+                        func.count(db.snapshots.c.record_id),
+                        func.sum(case((db.snapshots.c.upload_state == "pending", 1), else_=0)),
+                        func.sum(case((db.snapshots.c.upload_state == "uploaded", 1), else_=0)),
+                    ).where(db.snapshots.c.session_id == identifier)
+                ).one()
+                items.append(
+                    local.descriptor.model_dump()
+                    | {
+                        "source_id": binding.descriptor.source_id,
+                        "measurement_point_id": binding.descriptor.measurement_point_id,
+                        "state": local.state,
+                        "collection_enabled": local.collection_enabled,
+                        "ended_at": local.ended_at,
+                        "total_count": counts[0],
+                        "pending_count": counts[1] or 0,
+                        "eligible_uploaded_count": (counts[2] or 0)
+                        if local.state == "completed"
+                        else 0,
+                    }
+                )
+            return {"items": items, "total": total}
+
     def cleanup_completed(self, session_ids: tuple[UUID, ...]) -> int:
         identifiers = [str(UUID4_validator(value)) for value in session_ids]
         with self._transaction(write=True) as session:
+            known = session.scalar(
+                select(func.count())
+                .select_from(db.sessions)
+                .where(db.sessions.c.session_id.in_(identifiers))
+            )
+            if known != len(set(identifiers)):
+                raise LookupError("not_found")
             completed = select(db.sessions.c.session_id).where(
                 db.sessions.c.state == "completed", db.sessions.c.session_id.in_(identifiers)
             )

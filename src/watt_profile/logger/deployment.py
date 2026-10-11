@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
-from typing import Literal
+from decimal import Decimal
+from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import StrictBool, TypeAdapter
+from pydantic import Field, StrictBool, StrictInt, StrictStr, TypeAdapter, model_validator
 
 from watt_profile.contracts import lifecycle as pure
-from watt_profile.contracts.domain import UUID4, DomainModel, UtcTime, new_id
+from watt_profile.contracts.domain import UUID4, DecimalValue, DomainModel, UtcTime, new_id
 from watt_profile.logger.storage.repository import LocalSettings, LoggerRepository, Site
 
 
@@ -23,6 +24,29 @@ class DeploymentCommand(DomainModel):
 class SettingsCommand(DomainModel):
     settings: LocalSettings
     expected_session_id: UUID4 | None
+
+
+class SettingsEdit(DomainModel):
+    expected_session_id: UUID4 | None
+    server_url: StrictStr | None = None
+    serial_path: StrictStr | None = None
+    baudrate: StrictInt = 115200
+    bytesize: StrictInt = 8
+    parity: StrictStr = "N"
+    stopbits: DecimalValue = Decimal(1)
+
+
+class SiteEdit(DomainModel):
+    address: Annotated[StrictStr, Field(max_length=500)] | None = None
+    description: Annotated[StrictStr, Field(max_length=2000)] | None = None
+
+    @model_validator(mode="after")
+    def supplied(self):
+        if not self.model_fields_set or any(
+            getattr(self, n) is None for n in self.model_fields_set
+        ):
+            raise ValueError("invalid_site_edit")
+        return self
 
 
 Drain = Callable[[pure.Lifecycle], datetime]
@@ -87,6 +111,13 @@ class DeploymentOperations:
 
     def edit_site(self, site: Site) -> Site:
         return self.repository.save_site(site, edit=True)
+
+    def patch_site(self, site_id: UUID, command: SiteEdit) -> Site:
+        changes = SiteEdit.model_validate(command.model_dump(exclude_unset=True))
+        old = self.repository.get_site(site_id)
+        return self.edit_site(
+            Site.model_validate(old.model_dump() | changes.model_dump(exclude_unset=True))
+        )
 
     def restore_intent(self) -> pure.Transition:
         self.state = pure.restart(
@@ -176,6 +207,16 @@ class DeploymentOperations:
                 reason for reason in self.unsaved_blocks if reason != "meter_changed"
             )
         return pure.Transition(lifecycle=self.state, result=result.result)
+
+    def patch_settings(self, command: SettingsEdit, now: datetime) -> LocalSettings:
+        command = SettingsEdit.model_validate(command.model_dump(exclude_unset=True))
+        self._check(command.expected_session_id)
+        old = self.repository.load_installation().settings
+        changes = command.model_dump(exclude_unset=True, exclude={"expected_session_id"})
+        settings = LocalSettings.model_validate(old.model_dump() | changes)
+        return self.save_settings(
+            SettingsCommand(settings=settings, expected_session_id=command.expected_session_id), now
+        )
 
     def save_settings(self, command: SettingsCommand, now: datetime) -> LocalSettings:
         command = SettingsCommand.model_validate(command.model_dump())

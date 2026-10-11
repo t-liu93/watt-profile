@@ -1,1 +1,8 @@
-<!-- Packaged template resource; the login UI is implemented in M2-07. -->
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Logger login</title></head>
+<body><h1>Logger login</h1>{% if error %}<p role="alert">{{ error }}</p>{% endif %}
+<form method="post" action="/login">
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<label>Username <input name="username" autocomplete="username" required maxlength="64"></label>
+<label>Password <input type="password" name="password" autocomplete="current-password" required maxlength="256"></label>
+<button type="submit">Log in</button></form></body></html>

@@ -1,0 +1,6 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Watt Profile Logger</title>
+<meta name="csrf-token" content="{{ csrf_token }}"></head>
+<body><h1>Watt Profile Logger</h1><p>The local service is ready.</p>
+<form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">Log out</button></form>
+</body></html>
