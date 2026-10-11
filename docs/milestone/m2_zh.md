@@ -296,6 +296,8 @@ unset WATT_TEST_COMPOSE_PROJECT
 
 - M2-01：自动检查和全新独立审查通过。`tests/test_logger_bootstrap.py tests/test_package.py -q`：11 项通过；Ruff 检查／格式和 `pip check` 通过。在仓库外验证 wheel 资源。经过一轮修复解决空目录校验、静态资源打包及双语锁文件文档。验证仅使用隔离 Python 3.12 环境和临时目录。
 
+- M2-02：自动检查和全新独立审查通过。`tests/test_logger_storage.py -q`：49 项通过；全套回归：211 项通过；Ruff 通过。独立验证包含事务回滚、并发阻断、A→B→A 和仓库外安装包迁移。一轮修复保留已完成会话的结束时间并执行严格 JSON 约束。全部数据库和 descriptor 使用临时／合成数据。
+
 ### 验收记录
 
 | 证据 | 状态 |
