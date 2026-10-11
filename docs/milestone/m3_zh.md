@@ -2,7 +2,7 @@
 
 > **中文** · [English — source of truth](m3.md)
 
-状态：实现进行中，2026-10-12。M3-01–M3-08 实现、检查与独立审查已完成；M3-09–M3-10 及所有者浏览器验收仍待执行。M1、M2 已验收。第 4 节记录服务、HTTP、浏览器及隔离容器检查；合成恢复和最终集成仍待执行。
+状态：实现进行中，2026-10-12。M3-01–M3-09 实现、检查与独立审查已完成；M3-10 及所有者浏览器验收仍待执行。M1、M2 已验收。第 4 节记录服务、HTTP、浏览器及隔离容器检查；隔离合成恢复已通过，最终集成仍待执行。
 
 ## 1. 目标与 Agent 使用方式
 
@@ -360,7 +360,8 @@ WATT_TEST_POSTGRES=1 PLAYWRIGHT_BROWSERS_PATH=/tmp/watt-m3-run.Qsb5bu/browser /t
 | M3-06 认证/HTTP | 17 项真实 PostgreSQL 检查；独立审查与集成检查通过 |
 | M3-07 管理页面/Logger JSON | 40 项浏览器/API、18 项兼容检查；独立审查与集成检查通过 |
 | M3-08 容器交付 | 2 项 Server/Caddy、1 项 Logger Compose/浏览器检查；独立审查与集成检查通过 |
-| M3-09–M3-10 实现与任务检查 | 待执行 |
+| M3-09 演示/恢复 | 18 项演示/恢复检查；独立审查与集成检查通过 |
+| M3-10 集成验收与交接 | 待执行 |
 | 完整 M1/M2 回归与集成静态/安装包检查 | 待执行 |
 | 真实 PostgreSQL 并发/原子性/CSV 检查 | 任务检查通过；最终集成检查待执行 |
 | 本地 Compose、Caddy 验证、自动浏览器 walkthrough | 待执行 |
@@ -442,3 +443,53 @@ docker image rm "watt-profile-logger-dev:$WATT_DEV_IMAGE_TAG"
 全部 M2 浏览器断言保持，并验证未启动 Server 服务。原 Logger `python:3.12-slim` base 标签成功拉取，其运行／构建行为未改变。新拉取的 `python:3.12.13-slim-bookworm`、`python:3.12-slim` 和 `caddy:2.10.2-alpine` 标签保留供后续 M3 使用；预存 `postgres:17.6-alpine` 和共享构建缓存未删除。唯一 Server／Logger 项目的容器、网络、卷及应用标签均已清理。全仓库 `python -m ruff check .`、`python -m ruff format --check .` 和 `git diff --check` 通过。未测试或访问生产服务、公网 ACME、宿主设备或 ARM64 Server。M3-09 demo／恢复和 M3-10 集成验收仍属独立任务。
 
 M3-08 独立审查通过：2 项 Server/Caddy 及完整 Logger Compose/浏览器回归（1 项）。审查自建项目、标签和临时目录已删除。另确认并清理实现自建默认 pytest 目录 `pytest-74`/`pytest-75` 及其 current 符号链接，保留预存目录。合成恢复/最终集成及所有者验收仍待执行。
+
+### 已验证的 M3-09 私密演示与隔离恢复
+
+仅用于开发的 `server_demo` CLI 使用标准库 HTTP 客户端，不读取环境代理、不跟随重定向、没有启动钩子或自动外发请求。`prepare` 排他创建新的 0700 目录，包含 0600 注册 JSON、Token 文件和三个保存的批次（每批两条，A→B→A）。新 UUID 与一次捕获的 UTC 基准只生成一次；重放读取保存的身份/时间，保留 Decimal 字符串（`1.020`、`0.000`）、空指标和清洗/脱敏字段。`ingest` 只接受精确回环 origin；显式开发网络选项仅允许 `http://server:8080`。此时 Host 取自容器内另外验证为回环地址的 `WATT_SERVER_PUBLIC_ORIGIN`，随机映射端口仍遵守 Server 的严格 Host 检查。非 200 或格式错误/不完整/乱序确认均返回安全错误，不输出凭据。
+
+从仓库根目录执行以下精确自动演练；每轮选择**全新**项目、镜像、临时目录和缓存名称。演练拒绝已有项目标签的容器/网络/卷、同名镜像标签和环境中的 Server 数据库配置。只删除自己新构建的镜像标签；保留预存 PostgreSQL/Python/Caddy 镜像。
+
+```sh
+env -u WATT_SERVER_DATABASE_URL -u WATT_SERVER_DATABASE_URL_FILE \
+  WATT_TEST_SERVER_COMPOSE=1 \
+  WATT_TEST_COMPOSE_PROJECT=watt-m3-09-recovery-20261012-c \
+  WATT_DEV_IMAGE_TAG=watt-m3-09-recovery-20261012-c \
+  /tmp/watt-m3-run.Qsb5bu/venv/bin/python -m pytest \
+  tests/integration/test_server_recovery.py -q --tb=short \
+  --basetemp=/tmp/watt-m3-09-run-04 \
+  -o cache_dir=/tmp/watt-m3-09-cache-04
+```
+
+可执行演练位于 `tests/integration/test_server_recovery.py`。它选择独立空闲回环端口，设置 `WATT_DEV_SERVER_PORT`，执行 `docker compose -p PROJECT -f docker-compose.dev.yml up --build -d --wait --wait-timeout 120 server`。通过真实 HTTP 登录隔离开发管理员，证明注册前 401 和 B 未授权 403，依次注册 A/B、提交六条读数并重放而不新增。A 归属四条读数/两个不可变会话，B 归属两条/一个。撤销 A 保留 B 授权和历史；禁用凭据阻止后续上传，但管理员仍可读取 JSON/CSV 历史。
+
+驱动已验证以下 CLI 形式；`NEW_DIRECTORY` 必须不存在，`ORIGIN` 必须是实际隔离回环 origin。浏览器演练在注册页依次粘贴私密的 `registration-A.json`、`registration-B.json`，其间分别执行 `--site A`/`--site B`。不要在其他地方粘贴或输出 Token。
+
+```sh
+python -m watt_profile.cli.server_demo prepare --output NEW_DIRECTORY
+python -m watt_profile.cli.server_demo ingest --directory NEW_DIRECTORY --server-origin ORIGIN --site A
+python -m watt_profile.cli.server_demo ingest --directory NEW_DIRECTORY --server-origin ORIGIN --site B
+python -m watt_profile.cli.server_demo ingest --directory NEW_DIRECTORY --server-origin ORIGIN
+```
+
+显式隔离 Compose 网络路径也执行下列精确容器命令，驱动使用 `docker compose ... cp` 将已注册的保存数据复制到该私密目录，摄取前设置文件归属 UID/GID 10001。仅准备另一份新数据不会自动注册它。
+
+```sh
+docker compose -p PROJECT -f docker-compose.dev.yml exec -T server \
+  python -m watt_profile.cli.server_demo prepare --output /tmp/synthetic-demo
+docker compose -p PROJECT -f docker-compose.dev.yml exec -T server \
+  python -m watt_profile.cli.server_demo ingest --directory /tmp/synthetic-demo \
+  --server-origin http://server:8080 --allow-development-network
+```
+
+备份/恢复刻意限定在该驱动新建的项目。它在指定 pytest 临时根目录下新建 0700 目录，排他创建 `backup/server.dump`（`open("xb")`，0600），将 `docker compose ... exec -T server-db pg_dump -U watt -d watt --format=custom` 的二进制 stdout 写入该描述符。不得使用普通可覆盖的 shell 重定向；等价手工重定向必须先执行 `umask 077` 和 `set -C`/`set -o noclobber` 再打开新路径。
+
+驱动选择全新 `restore_<UUID-hex>` 数据库名，执行 `docker compose ... exec -T server-db createdb -U watt NEW_DATABASE`，只在成功后记录创建，并在恢复前验证 public 表为零。重复 `createdb` 必须失败；绝不删除或清空已有库以继续恢复。将私密备份以 stdin 传给 `docker compose ... exec -T server-db pg_restore -U watt -d NEW_DATABASE --exit-on-error --no-owner --no-acl`。逐列比较全部业务表，包括 UUID、canonical Snapshot 文本/哈希、投影、描述符、凭据摘要/禁用状态、联系时间及授权。
+
+新私密 `restored-config/` 包含独立的 0600 `database-url`、`admin-password` 文件，归属 UID/GID 10001；URL 保留隔离数据库主机/密码，但仅指向新建数据库。驱动在 `PROJECT_default` 启动单独带标签的 `PROJECT-restored` 容器，映射新的 `127.0.0.1:PORT:8080`，只读挂载配置到 `/run/credentials`。设置 `WATT_SERVER_DATABASE_URL_FILE`、`WATT_SERVER_ADMIN_PASSWORD_FILE`、`WATT_SERVER_ADMIN_USER=admin`、自己的 `WATT_SERVER_PUBLIC_ORIGIN` 和 `WATT_SERVER_COOKIE_SECURE=false`。真实 HTTP 验证管理员登录、精确 JSON/CSV 历史、禁用 Token 的 401 和独立启用 Token 的认证；启用 Token 对另一设备的批次到达设备校验并返回 403 `device_mismatch`。不声称恢复后成功摄取。再次比较源库完整备份前状态，确保源环境不变。管理员密码、cookie 和 Caddy/域名/证书配置属于独立部署配置，不从数据库备份恢复。
+
+`finally` 清理先移除恢复容器，再删除**仅限已记录成功创建**的数据库，恢复私密配置归属，对唯一新项目执行 `docker compose ... down --volumes --remove-orphans`，仅删除本轮新 app 镜像标签，并删除本测试临时根目录内创建的演示/备份/配置目录。确认项目容器/网络/卷及镜像标签均不存在。不连接外部提供的数据库、不删除已有资源。检查需要 Docker/socket 权限提升；证明的是本地隔离恢复，不是生产部署或公开 TLS。
+
+2026-10-12 M3-09 结果：**17 项演示测试通过**（首次受限执行的四项 socket 权限失败，通过取得 socket 权限运行解决）；最终恢复驱动 **1 passed in 19.95s**。初轮恢复驱动的禁用请求漏传必需空 JSON；已修正该测试问题。全部 Ruff check/format-check 和 `git diff --check` 通过。已移除创建的项目资源、app 标签及任务私密临时根目录/缓存，未删除基础镜像。
+
+M3-09 独立审查通过：**同次运行 18 项演示/恢复检查通过（22.27s）**，Ruff、格式及 diff 检查通过。审查创建的临时目录、私有文件、项目资源及应用标签均已清理。恢复证据区分启用 Token 的认证与成功摄取；所有者验收及最终集成仍待执行。
