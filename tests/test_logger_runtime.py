@@ -400,6 +400,7 @@ def test_storage_guard_discard_and_durable_block(runtime):
     clock.advance(9)
     eventually(lambda: "storage_full" in repo.load_lifecycle().persisted_blocks)
     eventually(lambda: port.closed)
+    eventually(lambda: not rt._reader.is_alive() and not rt._window.is_alive())
     assert repo.get_status().pending_count == 0
     assert rt.start_collection(session(rt)).result == "blocked"
     with pytest.raises(ValueError, match="blocked"):

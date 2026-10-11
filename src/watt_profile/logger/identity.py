@@ -77,6 +77,9 @@ def load_or_initialize_installation(
     temporary files are never credentials. A committed identity is never replaced.
     """
     prepare_private_directory(data_dir)
+    marker = data_dir / ".restore-in-progress"
+    if marker.exists() or marker.is_symlink():
+        raise InstallationInconsistent()
     try:
         installation = repository.load_installation()
     except (ValueError, LookupError, NoResultFound, MultipleResultsFound):

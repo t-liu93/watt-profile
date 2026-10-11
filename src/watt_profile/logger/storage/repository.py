@@ -12,7 +12,7 @@ from typing import Annotated, Self
 from uuid import UUID
 
 from pydantic import Field, StrictInt, StrictStr, TypeAdapter, model_validator
-from sqlalchemy import Engine, LargeBinary, delete, func, insert, select, update
+from sqlalchemy import Engine, LargeBinary, case, delete, func, insert, select, update
 from sqlalchemy.orm import Session
 
 from watt_profile.contracts.domain import (
@@ -663,6 +663,85 @@ class LoggerRepository:
                 )
             )
             return result.rowcount
+
+    def check_safe_write(self, *, resolve_storage: bool = False) -> Lifecycle:
+        """Commit a revalidated no-op config write, optionally clearing pressure atomically."""
+        with self._transaction(write=True) as session:
+            installation = self._load_installation(session)
+            if installation is None:
+                raise ValueError("installation_required")
+            session.execute(update(db.config).values(singleton_id=1))
+            if resolve_storage:
+                blocks = [b for b in installation.lifecycle.persisted_blocks if b != "storage_full"]
+                session.execute(update(db.config).values(persisted_blocks=_json(blocks)))
+                if installation.lifecycle.session:
+                    session.execute(
+                        update(db.sessions)
+                        .where(
+                            db.sessions.c.session_id
+                            == str(installation.lifecycle.session.descriptor.session_id)
+                        )
+                        .values(collection_enabled=0)
+                    )
+            return self._load_installation(session).lifecycle
+
+    def cleanup_summary(self) -> tuple[dict[str, object], ...]:
+        with self._transaction() as session:
+            rows = session.execute(
+                select(
+                    db.sessions.c.session_id,
+                    db.sessions.c.state,
+                    func.count(db.snapshots.c.record_id).label("total_count"),
+                    func.sum(case((db.snapshots.c.upload_state == "pending", 1), else_=0)).label(
+                        "pending_count"
+                    ),
+                    func.sum(
+                        case(
+                            (
+                                (db.sessions.c.state == "completed")
+                                & (db.snapshots.c.upload_state == "uploaded"),
+                                1,
+                            ),
+                            else_=0,
+                        )
+                    ).label("eligible_uploaded_count"),
+                )
+                .select_from(
+                    db.sessions.outerjoin(
+                        db.snapshots, db.snapshots.c.session_id == db.sessions.c.session_id
+                    )
+                )
+                .group_by(db.sessions.c.session_id)
+                .order_by(db.sessions.c.started_at)
+            ).mappings()
+            return tuple(dict(row) | {"session_id": UUID(row["session_id"])} for row in rows)
+
+    def validate_all(self) -> Installation:
+        """Revalidate every owner and canonical row, including inactive sessions."""
+        with self._transaction() as session:
+            installation = self._load_installation(session)
+            if installation is None:
+                raise ValueError("installation_required")
+            for row in session.execute(select(db.sites)).mappings():
+                Site.model_validate(row)
+            for row in session.execute(select(db.points)).mappings():
+                if (
+                    row["measurement_point_id"] != str(measurement_point_id(UUID(row["site_id"])))
+                    or row["kind"] != "grid-connection"
+                ):
+                    raise ValueError("descriptor_mismatch")
+            ids = session.scalars(select(db.sessions.c.session_id)).all()
+            if session.scalar(select(func.count()).select_from(db.sources)) != len(ids):
+                raise ValueError("descriptor_mismatch")
+            for identifier in ids:
+                local, _ = self._descriptors(session, identifier)
+                if local.descriptor.device_id != installation.device_id:
+                    raise ValueError("descriptor_mismatch")
+            for row in session.execute(select(db.snapshots)).mappings():
+                self._load_snapshot(session, row)
+                if row["uploaded_at"] is not None:
+                    TypeAdapter(UtcTime).validate_python(row["uploaded_at"])
+            return installation
 
 
 def UUID4_validator(value: UUID) -> UUID:

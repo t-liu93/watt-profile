@@ -2,7 +2,7 @@
 
 > [English — source of truth](m2.md) · **中文**
 
-状态：实施中，2026-10-11。第 4 节记录任务证据；Milestone 验收仍待完成。
+状态：实施中，2026-10-11。M2-01–M2-06 已验收；M2-07–M2-10 仍待完成。第 4 节记录任务证据；Milestone 验收仍待完成。
 
 ## 1. 目标与 agent 使用方式
 
@@ -303,6 +303,8 @@ unset WATT_TEST_COMPOSE_PROJECT
 - M2-04：自动检查和全新独立审查通过。`tests/test_logger_sampler.py -q`：5 项通过；独立 sampler/domain 检查共 29 项通过；Ruff 通过。独立探测验证边界尾部归属、无提前快照、同时间接收顺序及归属。测试仅使用纯 mapped reading 和假时间。
 
 - M2-05：自动检查和全新独立审查通过。`tests/test_logger_runtime.py tests/test_p1_probe.py tests/test_logger_sampler.py -q`：44 项通过；独立相关套件：130 项通过；Ruff 通过。三轮修复解决未保存阻断的报告／保留、framer 拒绝报告、实际完成 UTC、原始帧生命周期和 sampler 调用兼容性。假串口覆盖独占 owner、预览取消／退避、延迟边界、drain 响应、故障和关机／重启意图。未打开物理串口设备。
+
+- M2-06：自动检查和全新独立审查通过。最终独立相关回归 178 项通过；SQLite 锁等待耗尽、混合清理、并发在线备份／恢复锁三个独立补充检查通过；编排器维护／运行时 84 项通过；Ruff 通过。五轮修复解决 drain／shutdown 故障、跨进程 schema 验证、维护写失败、恢复发布中断更换身份，以及解除／保存阻断时首次损坏的错误分类。所有者明确授权超过原三轮上限；未豁免验收标准。备份／恢复保留规范字节、身份、Token、意图、阻断及上传状态。验证只使用临时数据库／文件、注入容量失败和假设备。
 
 ### 验收记录
 

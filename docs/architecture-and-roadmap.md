@@ -2,7 +2,7 @@
 
 > **English** · [中文](architecture-and-roadmap_zh.md)
 
-Status: high-level planning baseline, updated 2026-10-11 to reflect the agreed MVP. This document records the system direction. M1 offline protocol/contracts/probe implementation is accepted after independent review and the owner-requested fresh-agent walkthrough; M2–M4 remain planned. Each application milestone must deliver its container build, Compose files and local browser walkthrough as specified in the roadmap. The [MVP roadmap](mvp-roadmap.md) defines the release boundary, milestones, and acceptance checks.
+Status: high-level planning baseline, updated 2026-10-11 to reflect the agreed MVP. This document records the system direction. M1 offline protocol/contracts/probe implementation is accepted after independent review and the owner-requested fresh-agent walkthrough; M2 implementation is in progress; M2 acceptance and M3–M4 remain pending. Each application milestone must deliver its container build, Compose files and local browser walkthrough as specified in the roadmap. The [MVP roadmap](mvp-roadmap.md) defines the release boundary, milestones, and acceptance checks.
 
 ## Purpose and boundaries
 

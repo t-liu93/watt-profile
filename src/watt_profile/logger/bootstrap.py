@@ -27,7 +27,7 @@ def prepare_private_directory(path: Path) -> Path:
 
 
 @contextmanager
-def installation_lock(data_dir: Path) -> Iterator[int]:
+def installation_lock(data_dir: Path, *, allow_incomplete_restore: bool = False) -> Iterator[int]:
     prepare_private_directory(data_dir)
     lock_path = data_dir / "logger.lock"
     descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
@@ -37,6 +37,9 @@ def installation_lock(data_dir: Path) -> Iterator[int]:
             fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
             raise InstanceBusy("instance_busy") from exc
+        marker = data_dir / ".restore-in-progress"
+        if (marker.exists() or marker.is_symlink()) and not allow_incomplete_restore:
+            raise RuntimeError("restore_incomplete")
         yield descriptor
     finally:
         os.close(descriptor)

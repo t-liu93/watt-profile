@@ -5,13 +5,13 @@ from __future__ import annotations
 import errno
 import json
 import re
-import shutil
+import sqlite3
 import threading
 from collections.abc import Callable
-from pathlib import Path
 from uuid import UUID
 
 from pydantic import StrictStr, field_validator
+from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from watt_profile.contracts import lifecycle as pure
 from watt_profile.contracts.domain import (
@@ -24,6 +24,7 @@ from watt_profile.contracts.domain import (
     UtcTime,
 )
 from watt_profile.logger.deployment import DeploymentCommand, DeploymentOperations, SettingsCommand
+from watt_profile.logger.maintenance import StorageHealthGuard, is_database_corruption
 from watt_profile.logger.sampler import WindowSampler
 from watt_profile.logger.storage.repository import LoggerRepository, Site
 from watt_profile.p1.parser import P1ParseError, TelegramFramer, parse_telegram
@@ -125,7 +126,8 @@ class LoggerRuntime:
         self.repository = repository
         self.factory = serial_factory or PySerialFactory()
         self.clock = clock or SystemClock()
-        self.health_guard = health_guard or self._default_health
+        self.storage_guard = StorageHealthGuard(repository)
+        self.health_guard = health_guard or self.storage_guard
         self.input_mode = input_mode
         self.join_timeout = join_timeout
         self._commands = threading.Lock()
@@ -146,14 +148,34 @@ class LoggerRuntime:
         self._closed = False
         self._shutting_down = False
         self._disconnect_sequence = 0
+        self._fatal_storage = False
         self.operations = DeploymentOperations(repository, self._drain)
 
-    def _default_health(self):
-        path = Path(self.repository.engine.url.database).parent
-        if shutil.disk_usage(path).free < 64 * 1024 * 1024:
-            raise OSError("storage_full")
-        installation = self.repository.load_installation()
-        self.repository.save_settings(installation.settings)
+    def resolve_storage_block(self):
+        def action():
+            self._release()
+            state = self.storage_guard.resolve()
+            self.operations.unsaved_blocks = tuple(
+                b for b in self.operations.unsaved_blocks if b != "storage_full"
+            )
+            self.operations.state = self.operations._retain_unsaved_blocks(state)
+            self.runtime_error = None
+            return pure.Transition(
+                lifecycle=self.operations.state,
+                result="blocked" if self.operations.state.persisted_blocks else "ok",
+            )
+
+        return self._command(action)
+
+    def cleanup_summary(self):
+        return self.repository.cleanup_summary()
+
+    def cleanup_completed(self, session_ids):
+        def action():
+            deleted = self.repository.cleanup_completed(session_ids)
+            return {"deleted_count": deleted, "free_bytes": self.storage_guard.free_bytes()}
+
+        return self._command(action)
 
     def _wait(self, event, seconds):
         # Custom clocks may provide virtual, interruptible waits for deterministic tests.
@@ -175,18 +197,28 @@ class LoggerRuntime:
             {n: getattr(state, n) for n in pure.Lifecycle.model_fields} | values
         )
 
-    def _command(self, action):
+    def _command(self, action, *, allow_fatal=False):
         if not self._commands.acquire(blocking=False):
             raise ValueError("busy")
         try:
             with self._state:
                 if self._closed or self._shutting_down:
                     raise ValueError("runtime_closed")
+                if self._fatal_storage and not allow_fatal:
+                    raise RuntimeError("storage_fatal")
                 if self._reader and self._reader.is_alive() and self._cancel.is_set():
                     raise ValueError("busy")
                 if self._port is not None and self._cancel.is_set():
                     raise ValueError("serial_close_failed")
-                return action()
+                try:
+                    return action()
+                except (OSError, DBAPIError, sqlite3.DatabaseError) as exc:
+                    if isinstance(exc, (IntegrityError, sqlite3.IntegrityError)):
+                        raise
+                    self._storage_failure(exc)
+                    if self._fatal_storage:
+                        raise RuntimeError("storage_fatal") from None
+                    raise OSError("storage_full") from None
         finally:
             self._commands.release()
 
@@ -194,8 +226,10 @@ class LoggerRuntime:
         def action():
             try:
                 self.health_guard()
-            except Exception:
-                self._block("storage_full")
+            except Exception as exc:
+                self._storage_failure(exc)
+                if self._fatal_storage:
+                    raise RuntimeError("storage_fatal") from None
                 return pure.Transition(lifecycle=self.operations.state, result="blocked")
             result = self.operations.restore_intent()
             if result.lifecycle.collection_state == "starting":
@@ -210,8 +244,10 @@ class LoggerRuntime:
             if result.result == "ok" and not (self._reader and self._reader.is_alive()):
                 try:
                     self.health_guard()
-                except Exception:
-                    self._block("storage_full")
+                except Exception as exc:
+                    self._storage_failure(exc)
+                    if self._fatal_storage:
+                        raise RuntimeError("storage_fatal") from None
                     return pure.Transition(lifecycle=self.operations.state, result="blocked")
                 self._launch(False)
             return result
@@ -381,9 +417,8 @@ class LoggerRuntime:
                 if not temporary:
                     try:
                         bound = self.repository.bind_meter(session.session_id, fingerprint)
-                    except Exception:
-                        self.runtime_error = "storage_error"
-                        self._block("storage_full")
+                    except Exception as exc:
+                        self._storage_failure(exc)
                         break
                     if "meter_changed" in bound.persisted_blocks:
                         self._block("meter_changed")
@@ -410,27 +445,46 @@ class LoggerRuntime:
         if count:
             self.rejected_frames += count
             # Do not obscure the fault that caused the reader to stop.
-            if self.runtime_error not in {"storage_error", "serial_close_failed"}:
+            if self.runtime_error not in {"storage_error", "storage_fatal", "serial_close_failed"}:
                 self.runtime_error = "snapshot_invalid"
+
+    def _mark_storage_fatal(self):
+        self._fatal_storage = True
+        self.runtime_error = "storage_fatal"
+        self._change(collection_state="idle", stop_action=None, next_site_id=None)
+
+    def _storage_failure(self, exc):
+        if is_database_corruption(exc):
+            self._mark_storage_fatal()
+            self._block(None)
+        else:
+            self.runtime_error = "storage_error"
+            self._block("storage_full")
 
     def _block(self, reason):
         self._cancel.set()
         self._window_cancel.set()
         self._sampler = None
-        self.operations.state = pure.block_collection(self.operations.state, reason).lifecycle
-        try:
-            persisted = self.repository.update_blocks(reason, blocked=True)
-            self.operations.unsaved_blocks = tuple(
-                block
-                for block in self.operations.unsaved_blocks
-                if block not in persisted.persisted_blocks
-            )
-            effective = self.operations._retain_unsaved_blocks(persisted)
-            self._change(persisted_blocks=effective.persisted_blocks)
-        except Exception:
-            if reason not in self.operations.unsaved_blocks:
-                self.operations.unsaved_blocks += (reason,)
-            self.runtime_error = "storage_error"
+        if reason is not None:
+            previous_blocks = self.operations.state.persisted_blocks
+            self.operations.state = pure.block_collection(self.operations.state, reason).lifecycle
+            try:
+                persisted = self.repository.update_blocks(reason, blocked=True)
+                self.operations.unsaved_blocks = tuple(
+                    block
+                    for block in self.operations.unsaved_blocks
+                    if block not in persisted.persisted_blocks
+                )
+                effective = self.operations._retain_unsaved_blocks(persisted)
+                self._change(persisted_blocks=effective.persisted_blocks)
+            except Exception as exc:
+                if is_database_corruption(exc):
+                    self._mark_storage_fatal()
+                    self._change(persisted_blocks=previous_blocks)
+                else:
+                    if reason not in self.operations.unsaved_blocks:
+                        self.operations.unsaved_blocks += (reason,)
+                    self.runtime_error = "storage_error"
         if self._port is not None:
             try:
                 self._port.close()
@@ -438,17 +492,34 @@ class LoggerRuntime:
                 self.runtime_error = "serial_close_failed"
         self._preview_condition.notify_all()
 
+        # Join only owners stopped by this event. A delayed join worker must
+        # never cancel a new reader launched after explicit recovery.
+        stopped_owners = (self._reader, self._window)
+
+        def join_owners():
+            for thread in stopped_owners:
+                if thread:
+                    thread.join(self.join_timeout)
+                    if thread.is_alive():
+                        with self._state:
+                            self.runtime_error = "serial_join_failed"
+
+        threading.Thread(target=join_owners, daemon=True, name="logger-block-stop").start()
+
     def _persist(self, snapshots):
         for snapshot in snapshots:
             try:
                 self.health_guard()
+            except Exception as exc:
+                self._storage_failure(exc)
+                break
+            try:
                 self.repository.insert_snapshot(snapshot)
             except ValueError:
                 self.rejected_frames += 1
                 self.runtime_error = "snapshot_invalid"
-            except Exception:
-                self.runtime_error = "storage_error"
-                self._block("storage_full")
+            except Exception as exc:
+                self._storage_failure(exc)
                 break
 
     def _windows(self):
@@ -463,8 +534,8 @@ class LoggerRuntime:
                     if now - last_health >= 10:
                         try:
                             self.health_guard()
-                        except Exception:
-                            self._block("storage_full")
+                        except Exception as exc:
+                            self._storage_failure(exc)
                             break
                         last_health = now
                     if self._sampler:
@@ -513,6 +584,8 @@ class LoggerRuntime:
                     self._state.acquire()
                 self._persist(self._sampler.advance(self.clock.monotonic(), self.clock.utc_now()))
             self._sampler = None
+        if self._fatal_storage:
+            raise RuntimeError("storage_fatal")
         if self.operations.state.persisted_blocks:
             raise ValueError("blocked")
         return self.clock.utc_now()
@@ -521,6 +594,8 @@ class LoggerRuntime:
         cancellation = cancellation or threading.Event()
         temporary = False
         with self._state:
+            if self._fatal_storage:
+                raise RuntimeError("storage_fatal")
             if self._closed or self._preview_active or self._commands.locked():
                 raise ValueError("busy")
             if self.operations.state.persisted_blocks:
@@ -543,6 +618,8 @@ class LoggerRuntime:
             deadline = self.clock.monotonic() + 15
             try:
                 while self._sequence == sequence:
+                    if self._fatal_storage:
+                        raise RuntimeError("storage_fatal")
                     if self._shutting_down:
                         raise ValueError("preview_cancelled")
                     if self._disconnect_sequence != disconnected:
@@ -571,7 +648,7 @@ class LoggerRuntime:
             state = self.operations.state
             latest = self._latest
             error = self.runtime_error
-        free_bytes = shutil.disk_usage(Path(self.repository.engine.url.database).parent).free
+        free_bytes = self.storage_guard.free_bytes()
         status = self.repository.get_status(free_bytes=free_bytes)
         status = status.model_copy(
             update={
@@ -594,7 +671,7 @@ class LoggerRuntime:
         }
 
     def shutdown(self):
-        def action():
+        def action_shutdown():
             self._shutting_down = True
             self._preview_condition.notify_all()
             while self._preview_active:
@@ -603,9 +680,20 @@ class LoggerRuntime:
             if self._reader:
                 if state.collection_state in {"starting", "collecting", "reconnecting"}:
                     self._change(collection_state="stopping", stop_action="pause")
-                    self._drain(self.operations.state)
+                    try:
+                        self._drain(self.operations.state)
+                    except RuntimeError:
+                        if not self._fatal_storage:
+                            raise
+                    except ValueError as exc:
+                        # A storage-blocked tail is discarded after its owners
+                        # have been released; shutdown can still finish safely.
+                        if exc.args != ("blocked",) or (
+                            "storage_full" not in self.operations.state.persisted_blocks
+                        ):
+                            raise
                 else:
                     self._release()
             self._closed = True
 
-        return self._command(action)
+        return self._command(action_shutdown, allow_fatal=True)
