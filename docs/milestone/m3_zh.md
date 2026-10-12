@@ -2,32 +2,32 @@
 
 > **中文** · [English — source of truth](m3.md)
 
-状态：实现及自动检查完成，2026-10-12。M3-01–M3-10 独立审查已完成；所有者浏览器验收仍待确认。M1、M2 已验收，M3 尚未验收。第 4 节记录完整回归、真实 HTTP pipeline、Chromium 浏览器、隔离 Compose 及备份恢复证据。
+状态：2026-10-12，部署修订已规划，尚未实现。原 M3-01–M3-10 实现、检查及独立审查已完成；所有者要求中心 Server 只发布一个 HTTP 应用端口，由现有上游 Nginx 管理 HTTPS termination 和反代。新增 M3-11–M3-13 均待执行，所有者走查暂缓，M3 尚未验收。第 4 节原结果属于历史证据，不能代替修订后验收。本次仅改文档，代码和部署文件保持原状。
 
 ## 1. 目标与 Agent 使用方式
 
-交付可独立部署的 Centralized Server：管理员登录、粘贴 Logger 注册信息、站点/设备/凭据/授权管理、经授权的原子批量接收、分别展示联系与读数状态、筛选查询及完整 CSV 导出。包含 PostgreSQL、Caddy、容器、隔离合成验证、备份恢复说明和浏览器 walkthrough。**Logger 上传器及集成交付恢复仍属于 M4。**
+交付可独立部署的 Centralized Server：管理员登录、粘贴 Logger 注册信息、站点/设备/凭据/授权管理、经授权的原子批量接收、分别展示联系与读数状态、筛选查询及完整 CSV 导出。包含 PostgreSQL、仅发布单一 HTTP 应用端口的容器部署、隔离合成验证、备份恢复说明和浏览器 walkthrough。HTTPS termination、证书及反代由所有者现有宿主机/上游 Nginx 管理；项目不内置任何反代工具，也不生成或修改 Nginx 配置。**Logger 上传器及集成交付恢复仍属于 M4。**
 
-向 Agent 提供本文和任务 ID。实现前阅读 [Agent Guide](../../AGENTS_zh.md)、相关 [M1 契约](m1_zh.md)、[M2 设计](m2_zh.md)及当前源码。[MVP roadmap](../mvp-roadmap_zh.md)决定范围。按 M3-01 至 M3-10 顺序推进，依赖验收后才进入下一项；每项包含自己的测试。本文不启动委派，也不授权 Git 操作。已实现路径、命令及测试入口记录于第 4 节。任务卡保留原始交付和验收要求。
+向 Agent 提供本文和任务 ID。实现前阅读 [Agent Guide](../../AGENTS_zh.md)、相关 [M1 契约](m1_zh.md)、[M2 设计](m2_zh.md)及当前源码。[MVP roadmap](../mvp-roadmap_zh.md)决定范围。原 M3-01–M3-10 顺序实现的历史证据保留于第 4 节；下一轮按 M3-11→M3-12→M3-13 顺序推进，每项依赖验收后才能进入下一项。当前契约已按新的部署边界修订，现有实现尚未全部符合。本文不启动委派，也不授权代码、Git 或生产操作。
 
 保留 M1 领域/上传类型、规范编码及身份语义。实现 M1 C5 的 PostgreSQL 规范，不复制 Logger 的 SQLite DDL。Logger 唯一产品变化是结构化注册摘要复制，并附带回归检查。设计、任务卡、操作说明和验收证据集中于本文及英文镜像，同步更新；不另建里程碑设计或验收文件。
 
-排除：上传器、自动注册、凭据轮换 UI、客户账号、图表/统计、后台导出、远程配置、硬件验收及生产访问。不得根据静默或最后接收的积压数据推断会话已结束、设备当前位于哪个站点。
+排除：内置反代/TLS/证书管理、宿主机或上游 Nginx 配置修改、上传器、自动注册、凭据轮换 UI、客户账号、图表/统计、后台导出、远程配置、硬件验收及生产访问。不得根据静默或最后接收的积压数据推断会话已结束、设备当前位于哪个站点。
 
 ## 2. 共享实现契约
 
 ### C1. 运行时、配置与边界
 
-使用 Python 3.12、现有 FastAPI/Uvicorn、SQLAlchemy 2、Alembic、Jinja2，新增 Psycopg 3 及其 binary 发行包。重新生成运行/开发锁文件，打包服务端迁移、模板和静态资源。保持现有 Logger 构建可用。使用 PostgreSQL 17、Caddy 2 镜像系列；M3-08 在 Compose 中固定实际可用的具体版本并记录，不使用 `latest`。
+使用 Python 3.12、现有 FastAPI/Uvicorn、SQLAlchemy 2、Alembic、Jinja2，新增 Psycopg 3 及其 binary 发行包。重新生成运行/开发锁文件，打包服务端迁移、模板和静态资源。保持现有 Logger 构建可用。使用 PostgreSQL 17 镜像系列；Compose 固定实际可用的具体版本并记录，不使用 `latest`。Server 镜像只运行应用进程，部署不依赖反代或证书服务镜像。
 
-计划在 `src/watt_profile/server/` 下划分：settings/bootstrap、storage（schema/migrations/repositories）、registration、ingest、queries/export、auth/app、templates/static。入口为 `python -m watt_profile.cli.server` 与 `python -m watt_profile.cli.server_admin`。共享 `contracts` 不得导入任一应用。仓储/服务操作独立于 HTTP；SQLAlchemy session 短生命周期且不得跨线程共享。同步数据库工作不阻塞事件循环；流式导出在其生命周期内独占独立连接。
+现有 `src/watt_profile/server/` 包含：settings/bootstrap、storage（schema/migrations/repositories）、registration、ingest、queries/export、auth/app、templates/static。入口为 `python -m watt_profile.cli.server` 与 `python -m watt_profile.cli.server_admin`。共享 `contracts` 不得导入任一应用。仓储/服务操作独立于 HTTP；SQLAlchemy session 短生命周期且不得跨线程共享。同步数据库工作不阻塞事件循环；流式导出在其生命周期内独占独立连接。
 
 | 配置 | 契约 |
 | --- | --- |
 | `WATT_SERVER_DATABASE_URL_FILE` | 必填私有 UTF-8 文件，内容为 SQLAlchemy `postgresql+psycopg` URL；去掉一个末尾换行；不得记录内容 |
 | `WATT_SERVER_ADMIN_USER` | 必填，1–64 字符 |
 | `WATT_SERVER_ADMIN_PASSWORD_FILE` | 必填私有密码文件，去掉一个末尾换行后 16–256 字符；无生产默认值 |
-| `WATT_SERVER_PUBLIC_ORIGIN` | 必填 HTTP/HTTPS origin，无 userinfo/path/query/fragment；用于浏览器 Origin 和可信主机校验 |
+| `WATT_SERVER_PUBLIC_ORIGIN` | 所有者直接配置的外部浏览器入口 origin，HTTP/HTTPS、无 userinfo/path/query/fragment；Host/Origin 校验依据该值。外部 HTTPS 时即使容器收到 HTTP，也使用 HTTPS origin；不从内置反代/域名变量推导 |
 | `WATT_SERVER_HOST`、`WATT_SERVER_PORT` | 默认 `0.0.0.0`、`8080`；Compose 控制外部暴露 |
 | `WATT_SERVER_COOKIE_SECURE` | 默认 true；仅显式开发或所有者管理的隧道 HTTP 环境设为 false |
 
@@ -51,7 +51,7 @@
 
 Cookie 为 HttpOnly、SameSite=Lax、path `/`，Secure 按配置。登录及所有认证修改请求均检查 CSRF（含注册预览），存在 Origin 时验证同源。JSON 使用 `X-CSRF-Token`，表单使用隐藏 token。不启用 CORS。渲染值转义；认证页面/API/导出使用 `Cache-Control: no-store`。不得回显携带输入的验证异常。Session Cookie 不能认证 ingest，Bearer Token 不能认证管理接口。
 
-独立部署仅通过 Caddy 公网入口，应用/数据库不发布端口。在此边界剥离/替换不可信转发头，Uvicorn 不启用通配 forwarded-header 信任。应用 origin 判断使用配置的公开 origin；M3 登录限流可以使用直接代理 peer（保守的共享限额），不信任任意客户端头。直接本地开发使用实际 peer。关闭记录 query string/请求体的访问日志；日志可包含路由模板、状态和固定错误码。
+中心 Server 发布一个应用 HTTP 端口，所有者现有宿主机/上游 Nginx 负责 HTTPS termination、证书、路由和反代，项目不配置这些设施。应用继续按 `WATT_SERVER_PUBLIC_ORIGIN` 校验外部 Host（含非默认端口）及浏览器 Origin；上游须保留与该入口匹配的 Host，不依赖客户端可伪造的转发头。Uvicorn 保持 `proxy_headers=False`，不启用通配转发信任。外部 HTTPS 使用 Secure cookie，即使上游到容器为 HTTP。M3 登录限流可保守使用直接代理对端共享额度，直连开发使用实际对端。禁用 query/body access log；日志只可含路由模板、状态及固定错误码。
 
 页面路由：`GET/POST /login`、`POST /logout`、受保护的 `GET /`、`/sites/{site_id}`、`/devices/{device_id}`。未登录页面重定向登录，管理 API 返回 401。管理前缀为 `/api/admin/v1`；除 204 外成功为 `{"data": ...}`，失败为 `{"error":{"code":"...","message":"fixed safe text"}}`。CSRF 为 403，对象不存在 404，注册冲突 409，输入无效 422，存储不可用 503。代码中定义固定消息。管理 JSON 拒绝额外键，解析前限制请求体 32 KiB。Ingest 保持 M1 独立 envelope 和限制。
 
@@ -119,15 +119,26 @@ CSV 使用无 BOM 的 UTF-8、逗号分隔、CRLF 行和标准 CSV 引号，固�
 
 ### C8. 容器、合成验证与恢复
 
-交付 `deploy/server/Dockerfile`、独立 `deploy/server/compose.yml`、`Caddyfile` 和脱敏 `.env.example`；根 `docker-compose.dev.yml` 新增 `server`、`server-db` 和范围受限的开发凭据初始化。保留仅启动 Logger 的 `up logger` 行为。仅服务端 `up server` 启动其 DB/setup 依赖，不启动 Logger。使用项目专属卷/网络，无外部卷、主机串口映射或生产配置。应用 UID/GID 为 10001；root initializer 仅准备挂载卷后退出。
+交付 `deploy/server/Dockerfile`、仅含应用/PostgreSQL 的独立 `deploy/server/compose.yml` 和脱敏 `.env.example`；根开发 Compose 保留 `server`、`server-db` 和受限开发凭据初始化。部署不包含反代服务/镜像、证书卷、TLS 配置或专用于网关的 80/443 发布规则。保留 `up logger` 独立行为，`up server` 只启动其 DB/setup 依赖。应用 UID/GID 为 10001；root initializer 仅准备挂载卷后退出。使用项目专属卷/网络，无外部生产卷、宿主串口或生产配置。
 
-开发发布服务端 `127.0.0.1:${WATT_DEV_SERVER_PORT:-8081}:8080`，Logger 保留 8080，不发布 PostgreSQL，不需要 Caddy/域名。仅开发管理员为 `admin` / `testtesttesttest`；setup 将密码/DB URL 放入私有卷，不作为独立部署默认值。以 `WATT_DEV_IMAGE_TAG` 和唯一项目名隔离镜像/资源。独立部署 PostgreSQL 持久化，要求私有密码/URL 文件，Caddy HTTPS 要求域名并持久化证书/配置卷。仅 Caddy 发布 80/443。正常 down/recreate 保留卷。提供所有者管理隧道 HTTP 的显式 Caddy/origin/cookie 配置替代，不配置 WireGuard。
+应用在容器内监听 HTTP 8080。独立部署只发布一个可配置应用端口，PostgreSQL 不发布宿主端口。宿主机 Nginx 场景默认回环绑定；另一上游主机需要访问时由所有者选择可达绑定地址并管理网络。公网 HTTPS、域名、证书、隧道和上游配置由所有者提供，项目不自动修改或交付任何 Nginx 配置。浏览器 HTTPS 的 `WATT_SERVER_PUBLIC_ORIGIN` 与 `WATT_SERVER_COOKIE_SECURE=true` 不因容器内 HTTP 而降级；显式开发/所有者管理的 HTTP 入口可设置 Secure=false。
 
-健康依赖等待 PostgreSQL 和应用 ready。保持 PostgreSQL durability 默认值。启动迁移不能静默替换数据库或重生成管理员凭据。全部资源打包到服务端镜像，构建/运行本地主机架构。M3 不要求服务端 ARM64，但现有 Logger 目标/构建行为必须保持有效。
+| 部署配置 | 修订后契约（M3-11 待实现） |
+| --- | --- |
+| `WATT_SERVER_PUBLIC_ORIGIN` | 独立 Compose 必填，原样传入应用，代表外部访问入口 |
+| `WATT_SERVER_BIND_ADDRESS` | 独立 Compose 发布地址，默认 `127.0.0.1`；所有者可选择上游可达接口 |
+| `WATT_SERVER_PUBLISHED_PORT` | 独立 Compose 唯一宿主应用端口，默认 `18081`，可覆盖 |
+| `WATT_DEV_SERVER_PORT` | 保留开发端口覆盖变量，默认统一为 `18081`；当前代码仍默认 8081 |
+
+开发发布 `127.0.0.1:${WATT_DEV_SERVER_PORT:-18081}:8080`；Logger 保持其现有 8080 行为。只在开发使用 `admin` / `testtesttesttest`，凭据放入专属私有卷；独立部署必须提供外部私有 DB 密码、应用 DB URL 和管理员密码文件，无开发密码默认值。目录 0700、文件 0600，应用秘密目录及文件归 UID/GID 10001 所有，整目录只读挂载。保留 DB 持久化及正常 down/recreate 保留卷的行为。
+
+健康依赖等待 PostgreSQL 与应用 ready。探针访问容器 HTTP 8080，并使用配置外部入口的 Host authority；不放宽 Host/Origin 校验。保持 PostgreSQL durability 默认值。迁移/重启不重置 DB 或轮换凭据。Server 镜像打包现有资源，构建/运行本机架构；不新增 Server ARM64 要求，保留 Logger 构建行为。
+
+以上是待实施的新契约。现有独立部署模板仍包含旧反代服务、域名变量及关联资源，需要在 M3-11 中移除；本次未修改部署文件。
 
 提供 `python -m watt_profile.cli.server_demo prepare --output NEW_DIRECTORY` 及 `... ingest --directory DIRECTORY --server-origin ORIGIN`。这是仅开发 CLI，不是启动 hook 或公开 seed API。Prepare 创建私有合成注册 JSON 及有效 M1 批次，覆盖两站点、一设备、三会话（A→B→A）、null/零/scale 敏感指标和安全字段。以一次捕获 UTC 时间的固定相对偏移及新 UUID/Token 生成，并保存以便重复重放。Ingest 从私有 Token 文件读取，调用真实 HTTP 端点并验证完整确认；不直接写数据库、不打印凭据。默认 origin 仅允许 loopback；Compose 用已说明的显式 `--allow-development-network` 允许临时网络中的 `server` 服务。不提供任意远端主机选项。`--site A|B` 支持分步骤注册和拒绝验证。
 
-使用 PostgreSQL `pg_dump --format=custom` 一致备份，在私有临时目录排他创建输出。用 `pg_restore --exit-on-error --no-owner --no-acl` 恢复到新建、隔离、空数据库，不能覆盖已有数据库。命令使用秘密文件/容器环境，不把密码放入命令参数/日志。验证 ID、canonical hash、描述符、凭据摘要/禁用状态、授权，并对恢复实例认证/查询。部署管理员密码和 Caddy 设置属于独立配置，不包含在 DB 备份。第 4 节记录恢复 walkthrough 创建资源所用的确切已测试 Compose 命令、路径、环境设置和清理步骤。
+使用 PostgreSQL `pg_dump --format=custom` 一致备份，在私有临时目录排他创建输出。用 `pg_restore --exit-on-error --no-owner --no-acl` 恢复到新建、隔离、空数据库，不能覆盖已有数据库。命令使用秘密文件/容器环境，不把密码放入命令参数/日志。验证 ID、canonical hash、描述符、凭据摘要/禁用状态、授权，并对恢复实例认证/查询。部署管理员密码和所有者上游配置属于独立配置，不包含在 DB 备份。第 4 节记录恢复 walkthrough 创建资源所用的确切已测试 Compose 命令、路径、环境设置和清理步骤。
 
 ## 3. 原子实现任务
 
@@ -190,13 +201,14 @@ CSV 使用无 BOM 的 UTF-8、逗号分隔、CRLF 行和标准 CSV 引号，固�
 - 验收键盘操作、粘贴/预览/注册、多行元数据、已有站点提示且不覆盖、显式修改、授权/禁用确认、时间、过滤/详情/CSV、空/错误/过期状态和秘密清除。浏览器测试把实际 Logger 生成摘要传到服务端，不另造数据形状。
 - 边界：无上传器、凭据轮换或 UI 框架迁移。检查：`python -m pytest tests/browser/test_server_ui.py tests/browser/test_logger_ui.py tests/test_logger_api.py -q`；隔离应用/DB/fake serial、开发 Chromium。
 
-### M3-08 — 容器交付
+### M3-08 — 容器交付（原实现完成，部署修订见 M3-11）
 
-依赖：M3-07。契约：C8。
+依赖：M3-07。契约：修订后的 C8。
 
-- 交付服务端 Dockerfile/独立 Compose/Caddy/example，扩展根开发 Compose，双语 README 增加入口链接。新增构建/启动/ready/持久化自动化和第 4 节精确操作命令。
-- 验收仅服务端和仅 Logger 启动、DB 迁移、非 root 应用、私有文件、开发仅 loopback、DB 不发布、重建保留数据、包资源，以及隔离环境 Caddy 配置校验（不请求公网证书）。记录具体镜像版本和运行目标。
-- 边界：无生产部署、公网证书或硬件通过声明。检查：显式唯一项目下 `python -m pytest tests/integration/test_server_compose.py -q`，以及现有 Logger Compose 回归、Caddy 验证命令。
+- 交付 Server Dockerfile、应用/PostgreSQL 独立 Compose、秘密及端口/origin 示例；扩展根开发 Compose 与双语 README。
+- 验收 Server-only/Logger-only 启动、DB 迁移、非 root 应用、私有文件、开发回环、只发布一个应用 HTTP 端口、DB 不发布端口、重建持久化及安装资源。
+- 原交付的历史检查已完成；新边界实施/验收由 M3-11 接续，不将旧部署检查记作新方案通过。
+- 边界：无内置反代/证书工具，不配置或部署所有者 Nginx，不访问生产或硬件。检查：唯一项目下 `python -m pytest tests/integration/test_server_compose.py -q` 及既有 Logger Compose 回归。
 
 ### M3-09 — 合成 walkthrough 数据与隔离恢复
 
@@ -214,9 +226,36 @@ CSV 使用无 BOM 的 UTF-8、逗号分隔、CRLF 行和标准 CSV 引号，固�
 - 验收前面全部任务条件、重建持久化、查询/导出保真、浏览器 walkthrough、备份恢复清理记录。区分自动化 walkthrough 与所有者验收；所需检查和所有者 walkthrough 验收后才标记 M3 已验收。
 - 边界：无新功能、上传器/硬件验收或额外里程碑报告文件。检查：`python -m pytest tests/test_m3_pipeline.py -q` 及完整第 4 节检查。
 
+### M3-11 — 移除内置反代并整理单端口部署（待实现）
+
+依赖：原 M3-01–M3-10。契约：C1、C8。状态：仅规划，本轮不执行。
+
+- 边界/文件：`deploy/server/compose.yml`、`.env.example`、根开发 Compose、相关容器测试及双语 README/本文操作说明；删除旧 `deploy/server/Caddyfile`，移除关联服务、镜像、证书/配置卷、80/443 发布及旧域名变量耦合。应用/DB 数据模型和 Logger 行为不变，不迁移或删除已有生产卷。
+- 将独立 Compose 改为仅应用/PostgreSQL，直接传入 `WATT_SERVER_PUBLIC_ORIGIN`，按 C8 发布单 HTTP 端口、默认回环/18081；开发默认端口同样统一 18081。保留私有文件、非 root、迁移、健康检查、持久化及有界停机。
+- 验收：静态渲染只有必要服务和一个应用端口；无反代/证书资源、DB 宿主端口或生产默认凭据。隔离实测 Server-only/Logger-only、ready、重建及 down/up 持久化；原 UUID/摘要/凭据保持不变。只清理本轮新建资源。
+- 检查：`tests/integration/test_server_compose.py`（更新现有旧配置检查）、`tests/integration/test_logger_compose.py`、Compose config、Ruff/format/diff。项目/标签/临时秘密必须全新；不拉起上游代理或配置宿主机 Nginx。
+
+### M3-12 — 验证外部 HTTPS 入口与内部 HTTP 边界（待实现）
+
+依赖：M3-11 通过。契约：C1、C3、C8。状态：仅规划，本轮不执行。
+
+- 边界：按必要性调整 Server settings/HTTP 及相关测试/说明；保留当前严格单入口 Host/Origin 和 CSRF，不新增任意 Host、通配转发信任或本地地址别名功能。
+- 验收：所有者配置 HTTPS public origin、内部应用仍使用 HTTP 时，匹配 Host/Origin 的登录和管理操作有效，cookie 标记 Secure、重定向为相对地址；含非默认外部端口的入口一致。错误 Host/Origin 仍拒绝；伪造 Forwarded/X-Forwarded-* 不能绕过校验。内部 HTTP ready 探针正确带 Host，开发 HTTP/Secure=false 可用。
+- 只验证应用边界契约，不启动内置/测试反代、不生成 Nginx 配置、不申请证书、不连接生产。使用合成域名、隔离 app/DB 与 HTTP/ASGI 测试；不将这些结果声称为真实上游 TLS 验收。
+- 检查：`tests/test_server_bootstrap.py`、`tests/test_server_api.py`、`tests/test_server_auth.py`、`tests/test_m3_pipeline.py` 及必要 Compose/browser 定向检查，Ruff/format/diff。
+
+### M3-13 — 修订后全量回归与重新交接（待实现）
+
+依赖：M3-11、M3-12 通过。契约：全部。状态：仅规划，本轮不执行。
+
+- 验收：完整 M1/M2/M3 回归、实际 Logger→Server HTTP pipeline、Chromium、只含应用/DB 的容器交付、重建持久化、查询/CSV 保真和隔离备份恢复全部通过；Logger 正常记录仍 pending，不实现 M4 上传器。
+- 按实际新结果更新本文/镜像及 Roadmap 的状态、入口、环境、数量和资源清理证据，不复用旧部署结果作为新方案证明。中文简报和 walkthrough 按 Agent Guide 保存在未跟踪的 `development-notes/<run-id>/`，仅保留最终两份；引导走查时用户执行启动命令，不自动替用户启动。
+- 检查：`python -m pytest -q`、显式 `tests/browser`、Server/Logger Compose、恢复驱动及 pipeline，Ruff/format/diff/安装包检查。全部使用新建临时环境并清理；不改上游主机、代理、证书或生产数据。
+- 检查通过后恢复所有者走查；所有者确认前 M3 仍未 accepted，M4 不提前推进。
+
 ## 4. 检查与完成记录
 
-下方 M3-01–M3-09 任务记录是各自实现/审查轮次的历史证据，包含当时尚未完成的后续工作。验收表及 M3-10 记录给出当前状态。历史临时环境已删除，不得复用。
+下方原 M3-01–M3-10 记录为修订前的历史证据，保留当时实际结果；不能证明 M3-11–M3-13 的新部署边界通过。验收表区分历史完成与当前待办。历史临时环境已清理，不能复用。
 
 ### 已测试的 M3-01 基础与 PostgreSQL launcher
 
@@ -336,11 +375,11 @@ WATT_TEST_POSTGRES=1 PLAYWRIGHT_BROWSERS_PATH=/tmp/watt-m3-run.Qsb5bu/browser /t
 - 静态检查：`python -m ruff check .`、`python -m ruff format --check .`。
 - 安装包检查：在 checkout 外移除继承 `PYTHONPATH` 后导入 server、contracts 和包资源。
 - Compose：唯一 `watt-m3-...` 项目及 `WATT_DEV_IMAGE_TAG`、未占用 loopback 端口、构建/启动/ready、浏览器 walkthrough、强制重建与持久化、隔离恢复及清理。创建前检查是否已有同名资源。
-- 独立部署：以合成临时配置渲染 Compose，无公网 ACME 流量验证 Caddy，检查秘密/mount/port 和持久卷。真实公网 HTTPS 部署属于 M4。
+- 修订后独立部署（M3-11–M3-13 待执行）：以合成私有配置渲染仅应用/DB 的 Compose，验证单一应用 HTTP 端口、DB 不发布端口、秘密挂载及持久化；在应用边界验证外部 origin/cookie 行为。所有者 Nginx/TLS 配置不属于项目执行范围。
 
-### 所有者浏览器 walkthrough（验收待确认）
+### 所有者浏览器 walkthrough（暂缓，待 M3-11–M3-13 通过）
 
-1. 启动隔离开发服务端，准备私有合成 fixture 目录；打开 `http://127.0.0.1:8081`（或指定端口），用已记录的开发管理员登录。
+1. 启动隔离开发服务端，准备私有合成 fixture 目录；打开 `http://127.0.0.1:18081`（或指定端口），用已记录的开发管理员登录。
 2. 注册前提交 A 的已准备批次：预期 401、无行。浏览器粘贴 A JSON，查看隐藏 Token 的预览并确认。再次经 demo CLI 提交，预期完整确认。
 3. 按 UUID/地址查找 A，查看全部指标、null、质量、会话。按 device/session/UTC 区间筛选，导出 CSV，对比所有匹配记录 ID/值，而非仅可见页。
 4. 重放后行数不变。修改复制元数据后再次预览/注册 A：已有元数据不变；通过站点表单显式编辑。
@@ -361,96 +400,37 @@ WATT_TEST_POSTGRES=1 PLAYWRIGHT_BROWSERS_PATH=/tmp/watt-m3-run.Qsb5bu/browser /t
 | M3-05 查询/状态/CSV | 22 项真实 PostgreSQL 检查；独立审查与集成检查通过 |
 | M3-06 认证/HTTP | 17 项真实 PostgreSQL 检查；独立审查与集成检查通过 |
 | M3-07 管理页面/Logger JSON | 40 项浏览器/API、18 项兼容检查；独立审查与集成检查通过 |
-| M3-08 容器交付 | 2 项 Server/Caddy、1 项 Logger Compose/浏览器检查；独立审查与集成检查通过 |
+| M3-08 原容器交付 | 历史 2 项容器/配置、1 项 Logger Compose/浏览器检查通过；部署修订待 M3-11 |
 | M3-09 演示/恢复 | 18 项演示/恢复检查；独立审查与集成检查通过 |
-| M3-10 集成验收与交接 | 实现、自动检查及独立审查完成；所有者验收待确认 |
-| 完整 M1/M2 回归与集成静态/安装包检查 | 582 passed；19 项浏览器/集成检查另行显式选择后通过；Ruff/format/diff/安装包通过 |
-| 真实 PostgreSQL 并发/原子性/CSV 检查 | 完整回归及真实 HTTP Logger pipeline 通过 |
-| 本地 Compose、Caddy 验证、自动浏览器 walkthrough | 15 项 Chromium 浏览器、2 项 Server/Caddy、1 项完整 Logger Compose/浏览器检查通过 |
-| 隔离备份恢复与资源清理 | 1 项真实 HTTP 恢复驱动通过；自建资源已删除 |
-| 所有者浏览器 walkthrough 验收 | 待执行 |
-| 公网部署、Logger 上传器/恢复、物理硬件 | M4，不由 M3 声明通过 |
+| M3-10 原集成验收与交接 | 历史实现/检查/审查完成；原部署交接被取代，所有者验收暂缓 |
+| M3-11 无内置反代单端口部署 | 仅规划；实现及检查待执行 |
+| M3-12 外部 origin/内部 HTTP 边界 | 仅规划；实现及检查待执行 |
+| M3-13 修订后回归与交接 | 仅规划；实现/检查/所有者走查待执行 |
+| 原完整回归及静态/安装包检查 | 历史 582 passed；19 项 opt-in 检查另行通过；新全量结果待 M3-13 |
+| 真实 PostgreSQL 并发/原子性/CSV 检查 | 原回归/pipeline 通过；M3-13 验证保持 |
+| 原容器/浏览器检查 | 历史 15 项 Chromium、2 项容器/配置、1 项 Logger Compose/浏览器通过；修订检查待执行 |
+| 隔离备份恢复与资源清理 | 历史恢复通过/资源已删除；修订回归待 M3-13 |
+| 所有者浏览器 walkthrough 验收 | 暂缓，待 M3-11–M3-13 通过；尚未验收 |
+| 上游 Nginx/TLS 配置 | 所有者管理，不属于项目实现 |
+| 公网试点验证、Logger 上传器/恢复、物理硬件 | M4，不由 M3 声明通过 |
 
-每完成一项，在此同步双语追加实际命令、结果、环境/镜像版本、重要修复、不可用检查和清理证据。自动证据不等于所有者验收。所有 M3 自动入口已通过；独立审查已通过，所有者验收待确认。公网部署及硬件检查属于 M4。
+每完成一项，在此同步双语追加实际命令、结果、环境/镜像版本、重要修复、不可用检查和清理证据。原自动证据不等于修订部署验收。M3-11–M3-13 尚未实现或测试，检查通过后再恢复所有者走查。本轮文档修改未运行应用回归或新的部署测试。
 
-### 容器操作（M3-08）
+### 容器操作（M3-08 历史，修订交接待执行）
 
-本机目标为 Linux AMD64。Server 构建使用 `python:3.12.13-slim-bookworm`；两个 Server Compose 使用 `postgres:17.6-alpine`，独立部署使用 `caddy:2.10.2-alpine`。Server 镜像包含已安装包、模板、静态资源和独立迁移链。应用 UID/GID 为 10001。没有数据库端口发布、宿主设备、external 卷或生产设置，保留 PostgreSQL 持久化默认值。开发初始化器以 root、无网络运行，只准备其凭据卷后退出；随机 DB 密码和开发管理员密码均以独占创建方式只生成一次。重启／迁移不重置数据库或轮换文件。应用只读挂载 0700 私有凭据目录，文件为 0600。健康探针连接内部应用 8080 端口，但使用 public origin 的 Host authority，不放宽 Host 检查。PostgreSQL readiness 使用 TCP，避免初始化阶段临时 Unix socket 误报。
+原 Linux AMD64 容器交付使用已安装应用资源、Python `3.12.13-slim-bookworm`、PostgreSQL `17.6-alpine`、UID/GID 10001、私有只读秘密目录、TCP DB readiness、迁移启动及 30 秒停机宽限。检查了 Server-only、强制重建及 down/up 持久化。原容器/配置检查 **2 项通过（38.35s）**，完整 Logger Compose/Chromium **1 项通过（106.99s）**，均独立复核。项目资源/应用标签已清理；实现自建默认 pytest-74/75 及 current 符号链接经确认移除，预存目录保留。
 
-从仓库根目录选择未使用的项目／镜像标签和回环端口。确认标签筛选的容器／网络／卷列表及精确镜像列表为空；发现已有资源应停止，不得复用。此示例只启动 Server 依赖，正常 `down` 保留数据库和凭据卷：
+以上属于旧交付。依赖内置反代的生产操作与验证说明已废止，并从本文移除。现有部署代码/测试仍需 M3-11 修改；不将新的生产启动命令写成已实现或已测试。
 
-```sh
-export WATT_DEV_IMAGE_TAG="watt-m3-owner-$(date +%s)-$$"
-export WATT_DEV_SERVER_PORT=18081
-M3_PROJECT="$WATT_DEV_IMAGE_TAG"
-python3.12 - <<'PORT_CHECK'
-import os, socket
-with socket.socket() as listener:
-    listener.bind(('127.0.0.1', int(os.environ['WATT_DEV_SERVER_PORT'])))
-PORT_CHECK
-docker container ls -aq --filter "label=com.docker.compose.project=$M3_PROJECT"
-docker network ls -q --filter "label=com.docker.compose.project=$M3_PROJECT"
-docker volume ls -q --filter "label=com.docker.compose.project=$M3_PROJECT"
-docker image ls -q "watt-profile-server-dev:$WATT_DEV_IMAGE_TAG"
-docker compose -p "$M3_PROJECT" -f docker-compose.dev.yml up --build -d --wait --wait-timeout 120 server
-```
+M3-11–M3-13 之后，交接说明须记录单一应用 HTTP 端口（容器 8080、宿主可配置端口默认 18081）、私有秘密文件、外部 `WATT_SERVER_PUBLIC_ORIGIN` 和上游 HTTPS 下 Secure cookie。宿主机 Nginx 使用回环绑定，另一上游主机使用所有者选择的可达接口。Nginx/域名/TLS 由所有者独立配置。正常 down/recreate 保留卷，破坏性清理仅用于新建临时验证项目。
 
-打开 `http://127.0.0.1:18081`，以 `admin`／`testtesttesttest` 登录空 dashboard。`up logger` 只启动 Logger 和其初始化器，保留 `operator`／`testtesttesttest`，使用 8080 端口（可用 `WATT_DEV_PORT` 覆盖）。两应用的卷和凭据互相独立。停止允许 30 秒；启动／健康检查均有有限等待。通过下列命令验证持久化，重启后重新登录（会话被撤销），检查已有注册站点／读数。初始化器保留已有秘密文件：
-
-```sh
-docker compose -p "$M3_PROJECT" -f docker-compose.dev.yml up -d --force-recreate --wait --wait-timeout 120 server
-docker compose -p "$M3_PROJECT" -f docker-compose.dev.yml down
-docker compose -p "$M3_PROJECT" -f docker-compose.dev.yml up -d --wait --wait-timeout 120 server
-# 仅在此临时项目使用完毕后：
-docker compose -p "$M3_PROJECT" -f docker-compose.dev.yml down --volumes --remove-orphans
-docker image rm "watt-profile-server-dev:$WATT_DEV_IMAGE_TAG"
-```
-
-独立部署由所有者管理。将 `deploy/server/.env.example` 复制为被忽略的 `.env.local`，设置真实域名、管理员用户名和两个绝对私有目录路径。DB 目录包含 `password`；Server 目录包含 `database-url` 和 `admin-password`。目录以 0700 创建；文件使用 umask 0077 独占创建，权限为 0600。生成 URL-safe 随机 DB 密码，并在 `postgresql+psycopg://watt:<password>@server-db:5432/watt` 使用相同值；通过 `python -m watt_profile.cli.server_admin generate-password --output NEW_PATH` 生成管理员密码。Server 目录及文件必须属于 UID/GID 10001；PostgreSQL 入口以 root 读取其独立密码目录。整个私有目录只读绑定，以保留容器内私有父目录。独立部署没有开发密码默认值。所有者授权部署前先审阅解析后的配置：
-
-```sh
-docker compose --env-file deploy/server/.env.local -p OWNER_PROJECT -f deploy/server/compose.yml config
-# 仅限所有者已授权部署；M3 验证未执行：
-docker compose --env-file deploy/server/.env.local -p OWNER_PROJECT -f deploy/server/compose.yml up --build -d --wait --wait-timeout 120
-```
-
-只有 Caddy 发布 80／443；DB 和应用保持内部端口。Caddy data／config 和 DB data 使用持久化项目卷，正常 `down` 保留这些卷。Caddy 将 Host 替换为配置域名，移除不可信 `Forwarded` 和 `X-Forwarded-*` 输入；应用 Uvicorn 设置 `proxy_headers=False`。验证期间未申请公网证书。
-
-若所有者自行管理 HTTP 隧道，需明确将 Caddy 站点标签替换为 `http://YOUR_TUNNEL_HOST`，保留代理块（将 `header_up Host` 设置为 `YOUR_TUNNEL_HOST`），覆盖 Server `WATT_SERVER_PUBLIC_ORIGIN=http://YOUR_TUNNEL_HOST` 和 `WATT_SERVER_COOKIE_SECURE="false"`，将 Caddy 发布端口替换成一个所有者选择的回环 HTTP 映射（如 `127.0.0.1:18082:80`），并只读挂载替代 Caddyfile。必须移除原 80／443 映射，而不是另加端口；Compose 2.24.4+ 的 override 可使用 `ports: !override ["127.0.0.1:18082:80"]`。隧道可达性和访问控制由所有者提供。这是明确的部署替代方案，不是 WireGuard 配置，也不是已验证的公网端点。
-
-真实容器自动化创建并清理其精确唯一项目／镜像，动态选择未占用回环端口，拒绝已存在的标签资源或镜像。它只构建／启动 Server，验证私有文件所有权／权限／只读挂载、readiness／Host 拒绝、安装资源／迁移、真实 HTTP 注册／接收／查询／CSV、重启会话撤销，以及 force recreate 和正常 down／up 后数据与凭据哈希不变。独立部署配置使用合成临时私有文件；Caddy 以 `--network none` 和合成 `.invalid` 域名校验。必须显式选择测试：
-
-```sh
-WATT_TEST_SERVER_COMPOSE=1 WATT_TEST_COMPOSE_PROJECT=watt-m3-08-recheck-1791757501 WATT_DEV_IMAGE_TAG=watt-m3-08-recheck-1791757501 /tmp/watt-m3-run.Qsb5bu/venv/bin/python -m pytest tests/integration/test_server_compose.py -q --tb=short
-# 等效的隔离 Caddy 校验（没有部署／启动／ACME）：
-docker run --rm --network none -e WATT_SERVER_DOMAIN=synthetic.example.invalid -v "$PWD/deploy/server/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.10.2-alpine caddy validate --config /etc/caddy/Caddyfile
-```
-
-2026-10-12，更正后的容器命令 **2 tests passed**，耗时 38.35 秒。精确项目及本次构建的 Server 镜像由 `finally` 删除；共享 PostgreSQL／base／Caddy 镜像和构建缓存保留。初次运行在成功构建／启动后因测试资源路径断言写错而有一项失败；其隔离项目／镜像已先清理，再完成更正与通过。Logger 回归及最终检查在完成后记录如下。
-
-完整既有 Logger Compose／浏览器回归 **1 test passed**，耗时 106.99 秒；使用全新项目 `watt-m2-m3-08-1791757298731173833`、同名标签及动态选择的回环端口 57835。驱动先验证标签资源和精确 Logger 镜像不存在，再以 `try/finally` 清理生命周期执行下列命令（不触碰 Server 项目或其他 Docker 资源）：
-
-```sh
-export WATT_TEST_COMPOSE_PROJECT=watt-m2-m3-08-1791757298731173833
-export WATT_DEV_IMAGE_TAG="$WATT_TEST_COMPOSE_PROJECT"
-export WATT_DEV_PORT=57835
-export PLAYWRIGHT_BROWSERS_PATH=/tmp/watt-m3-run.Qsb5bu/browser
-docker compose -p "$WATT_TEST_COMPOSE_PROJECT" -f docker-compose.dev.yml up --build -d --wait --wait-timeout 120 logger
-/tmp/watt-m3-run.Qsb5bu/venv/bin/python -m pytest tests/integration/test_logger_compose.py -q --tb=short
-# finally，即使失败也执行：
-docker compose -p "$WATT_TEST_COMPOSE_PROJECT" -f docker-compose.dev.yml down --volumes --remove-orphans
-docker image rm "watt-profile-logger-dev:$WATT_DEV_IMAGE_TAG"
-```
-
-全部 M2 浏览器断言保持，并验证未启动 Server 服务。原 Logger `python:3.12-slim` base 标签成功拉取，其运行／构建行为未改变。新拉取的 `python:3.12.13-slim-bookworm`、`python:3.12-slim` 和 `caddy:2.10.2-alpine` 标签保留供后续 M3 使用；预存 `postgres:17.6-alpine` 和共享构建缓存未删除。唯一 Server／Logger 项目的容器、网络、卷及应用标签均已清理。全仓库 `python -m ruff check .`、`python -m ruff format --check .` 和 `git diff --check` 通过。未测试或访问生产服务、公网 ACME、宿主设备或 ARM64 Server。当时 M3-09 demo／恢复和 M3-10 集成验收仍属独立任务。
-
-M3-08 独立审查通过：2 项 Server/Caddy 及完整 Logger Compose/浏览器回归（1 项）。审查自建项目、标签和临时目录已删除。另确认并清理实现自建默认 pytest 目录 `pytest-74`/`pytest-75` 及其 current 符号链接，保留预存目录。当时合成恢复/最终集成及所有者验收仍待执行。
+实施后须将本待办小节替换为确切已测试的仅应用/DB 启动、配置、readiness、持久化、清理命令和用户执行的走查步骤。不生成反代配置，不访问所有者生产环境。
 
 ### 已验证的 M3-09 私密演示与隔离恢复
 
 仅用于开发的 `server_demo` CLI 使用标准库 HTTP 客户端，不读取环境代理、不跟随重定向、没有启动钩子或自动外发请求。`prepare` 排他创建新的 0700 目录，包含 0600 注册 JSON、Token 文件和三个保存的批次（每批两条，A→B→A）。新 UUID 与一次捕获的 UTC 基准只生成一次；重放读取保存的身份/时间，保留 Decimal 字符串（`1.020`、`0.000`）、空指标和清洗/脱敏字段。`ingest` 只接受精确回环 origin；显式开发网络选项仅允许 `http://server:8080`。此时 Host 取自容器内另外验证为回环地址的 `WATT_SERVER_PUBLIC_ORIGIN`，随机映射端口仍遵守 Server 的严格 Host 检查。非 200 或格式错误/不完整/乱序确认均返回安全错误，不输出凭据。
 
-从仓库根目录执行以下精确自动演练；每轮选择**全新**项目、镜像、临时目录和缓存名称。演练拒绝已有项目标签的容器/网络/卷、同名镜像标签和环境中的 Server 数据库配置。只删除自己新构建的镜像标签；保留预存 PostgreSQL/Python/Caddy 镜像。
+从仓库根目录执行以下精确自动演练；每轮选择**全新**项目、镜像、临时目录和缓存名称。演练拒绝已有项目标签的容器/网络/卷、同名镜像标签和环境中的 Server 数据库配置。只删除自己新构建的镜像标签；保留预存基础镜像。
 
 ```sh
 env -u WATT_SERVER_DATABASE_URL -u WATT_SERVER_DATABASE_URL_FILE \
@@ -488,7 +468,7 @@ docker compose -p PROJECT -f docker-compose.dev.yml exec -T server \
 
 驱动选择全新 `restore_<UUID-hex>` 数据库名，执行 `docker compose ... exec -T server-db createdb -U watt NEW_DATABASE`，只在成功后记录创建，并在恢复前验证 public 表为零。重复 `createdb` 必须失败；绝不删除或清空已有库以继续恢复。将私密备份以 stdin 传给 `docker compose ... exec -T server-db pg_restore -U watt -d NEW_DATABASE --exit-on-error --no-owner --no-acl`。逐列比较全部业务表，包括 UUID、canonical Snapshot 文本/哈希、投影、描述符、凭据摘要/禁用状态、联系时间及授权。
 
-新私密 `restored-config/` 包含独立的 0600 `database-url`、`admin-password` 文件，归属 UID/GID 10001；URL 保留隔离数据库主机/密码，但仅指向新建数据库。驱动在 `PROJECT_default` 启动单独带标签的 `PROJECT-restored` 容器，映射新的 `127.0.0.1:PORT:8080`，只读挂载配置到 `/run/credentials`。设置 `WATT_SERVER_DATABASE_URL_FILE`、`WATT_SERVER_ADMIN_PASSWORD_FILE`、`WATT_SERVER_ADMIN_USER=admin`、自己的 `WATT_SERVER_PUBLIC_ORIGIN` 和 `WATT_SERVER_COOKIE_SECURE=false`。真实 HTTP 验证管理员登录、精确 JSON/CSV 历史、禁用 Token 的 401 和独立启用 Token 的认证；启用 Token 对另一设备的批次到达设备校验并返回 403 `device_mismatch`。不声称恢复后成功摄取。再次比较源库完整备份前状态，确保源环境不变。管理员密码、cookie 和 Caddy/域名/证书配置属于独立部署配置，不从数据库备份恢复。
+新私密 `restored-config/` 包含独立的 0600 `database-url`、`admin-password` 文件，归属 UID/GID 10001；URL 保留隔离数据库主机/密码，但仅指向新建数据库。驱动在 `PROJECT_default` 启动单独带标签的 `PROJECT-restored` 容器，映射新的 `127.0.0.1:PORT:8080`，只读挂载配置到 `/run/credentials`。设置 `WATT_SERVER_DATABASE_URL_FILE`、`WATT_SERVER_ADMIN_PASSWORD_FILE`、`WATT_SERVER_ADMIN_USER=admin`、自己的 `WATT_SERVER_PUBLIC_ORIGIN` 和 `WATT_SERVER_COOKIE_SECURE=false`。真实 HTTP 验证管理员登录、精确 JSON/CSV 历史、禁用 Token 的 401 和独立启用 Token 的认证；启用 Token 对另一设备的批次到达设备校验并返回 403 `device_mismatch`。不声称恢复后成功摄取。再次比较源库完整备份前状态，确保源环境不变。管理员密码、cookie 和所有者上游/域名配置属于独立部署配置，不从数据库备份恢复。
 
 `finally` 清理先移除恢复容器，再删除**仅限已记录成功创建**的数据库，恢复私密配置归属，对唯一新项目执行 `docker compose ... down --volumes --remove-orphans`，仅删除本轮新 app 镜像标签，并删除本测试临时根目录内创建的演示/备份/配置目录。确认项目容器/网络/卷及镜像标签均不存在。不连接外部提供的数据库、不删除已有资源。检查需要 Docker/socket 权限提升；证明的是本地隔离恢复，不是生产部署或公开 TLS。
 
@@ -496,7 +476,7 @@ docker compose -p PROJECT -f docker-compose.dev.yml exec -T server \
 
 M3-09 独立审查通过：**同次运行 18 项演示/恢复检查通过（22.27s）**，Ruff、格式及 diff 检查通过。审查创建的临时目录、私有文件、项目资源及应用标签均已清理。恢复证据区分启用 Token 的认证与成功摄取；当时所有者验收及最终集成仍待执行。
 
-### M3-10 集成实现与自动证据（2026-10-12）
+### 原 M3-10 集成实现与自动证据（2026-10-12）
 
 `tests/test_m3_pipeline.py` 在不同 loopback HTTP listener 上运行实际 Logger 和 Server app，使用临时 SQLite、fake serial 字节及隔离 PostgreSQL 17.6。两个正常十秒采集窗口产生两条 pending 记录。测试取得已认证 Logger 注册摘要响应，经 Server HTTP 预览/注册，手动提交保存的 pending 批次、验证完整确认并重放去重。检查筛选分页与完整 CSV、全部 18 项 Decimal/null 指标及脱敏字段/质量、精确 HTTP detail、PostgreSQL canonical Snapshot 字节/hash、scale 敏感冲突拒收、撤销/禁用及历史保留。配置可访问 Server 不会触发 Logger 发送：即便已手动取得 HTTP 确认，本地全部行/canonical 字节和 pending 状态仍不变，成功上传时间仍为空。M4 上传器未实现。
 
@@ -528,20 +508,23 @@ WATT_TEST_SERVER_COMPOSE=1 WATT_TEST_COMPOSE_PROJECT=watt-m3-10-recovery-2026101
 | 新增真实 HTTP Logger→Server pipeline | 1 passed，3.28s | `/tmp/watt-m3-10-pipeline2.aZoArc` |
 | 完整回归，含 M1/M2、demo、PostgreSQL 并发/原子性/CSV 和 checkout 外安装 wheel 资源 | **582 passed，19 skipped**，54.16s | `/tmp/watt-m3-10-regression.Malt4b` |
 | 完整实际 Chromium suite，显式选择 | **15 passed**，58.29s | `/tmp/watt-m3-10-browser2.8yIsBB` |
-| Server 构建/ready、app 重建、down/up 卷持久化；独立配置及无网络 Caddy 验证 | **2 passed**，36.72s | `/tmp/watt-m3-10-servercompose.DC0UCG` |
+| 原 Server 构建/ready/持久化及独立配置（已被取代，修订检查待执行） | **2 passed**，36.72s | `/tmp/watt-m3-10-servercompose.DC0UCG` |
 | 既有完整 Logger Compose/Chromium walkthrough | **1 passed**，107.07s | `/tmp/watt-m3-10-loggercompose.vak148da` |
 | 私有备份/新隔离数据库/真实 HTTP 恢复服务及清理 | **1 passed**，19.85s | `/tmp/watt-m3-10-recovery.EeJUdv` |
 
 19 项回归跳过恰好是 15 项显式 opt-in 浏览器及四项集成用例；上方另行执行全部通过。不能在默认回归中将跳过算作通过。完整 wheel 检查从临时复制的 checkout 构建，在独立临时 venv 安装，在 checkout 外移除继承 `PYTHONPATH` 后导入资源。
 
-Logger Compose 使用 `WATT_TEST_COMPOSE_PROJECT=WATT_DEV_IMAGE_TAG=watt-m2-10-logger-20261012-a`、独立选择的空闲 loopback `WATT_DEV_PORT` 及 `PLAYWRIGHT_BROWSERS_PATH=/tmp/watt-m3-run.Qsb5bu/browser`。Wrapper 在 `docker compose -p "$PROJECT" -f docker-compose.dev.yml up --build -d --wait --wait-timeout 120 logger` 前拒绝已有项目 label 容器/网络/卷及精确 Logger 镜像标签，再执行 `"$PY" -m pytest tests/integration/test_logger_compose.py -q --basetemp="$TASK_ROOT/pytest" -o cache_dir="$TASK_ROOT/cache"`。`finally` 对同项目执行 `down --volumes --remove-orphans`，只移除 `watt-profile-logger-dev:$PROJECT`，断言这些精确资源/标签已不存在。Logger 项目未启动 Server 服务。Server 项目独立使用 PostgreSQL `17.6-alpine`、Python `3.12.13-slim-bookworm` 和 Caddy `2.10.2-alpine`；Logger 保留原有 `python:3.12-slim` 构建行为。
+Logger Compose 使用 `WATT_TEST_COMPOSE_PROJECT=WATT_DEV_IMAGE_TAG=watt-m2-10-logger-20261012-a`、独立选择的空闲 loopback `WATT_DEV_PORT` 及 `PLAYWRIGHT_BROWSERS_PATH=/tmp/watt-m3-run.Qsb5bu/browser`。Wrapper 在 `docker compose -p "$PROJECT" -f docker-compose.dev.yml up --build -d --wait --wait-timeout 120 logger` 前拒绝已有项目 label 容器/网络/卷及精确 Logger 镜像标签，再执行 `"$PY" -m pytest tests/integration/test_logger_compose.py -q --basetemp="$TASK_ROOT/pytest" -o cache_dir="$TASK_ROOT/cache"`。`finally` 对同项目执行 `down --volumes --remove-orphans`，只移除 `watt-profile-logger-dev:$PROJECT`，断言这些精确资源/标签已不存在。Logger 项目未启动 Server 服务。Server 项目使用 PostgreSQL `17.6-alpine` 和 Python `3.12.13-slim-bookworm`；旧独立部署配置已被取代；Logger 保留原有 `python:3.12-slim` 构建行为。
 
 修正两项测试自身问题：首次新 pipeline 请求缺少 JSON Content-Type（`/tmp/watt-m3-10-pipeline.n8G0Fv` 中一项失败）；首次完整浏览器在 `/tmp/watt-m3-10-browser.eiZP4A` 为 **14 passed，1 failed**，因为过期/retry 测试与 `auth.clear()` 之前已经开始的启动状态刷新竞争。现在该测试在验证过期前等待 dashboard 初始 network-idle 边界，保留产品有意合并刷新的行为及全部断言。完整浏览器重跑通过。未改变产品行为或削弱检查。既有 Starlette/httpx test-client deprecation warning 不影响通过。
 
 全仓库 `python -m ruff check .`、`python -m ruff format --check .`、`git diff --check` 通过。临时 PostgreSQL fixture 断言其容器、匿名卷及私有 URL 目录已不存在。各 Compose/恢复驱动仅清理自己新建资源，包括恢复容器/新数据库及私有文件。实现 wrapper 另外核验上面三个精确项目 label 均无容器/网络/卷，app 标签均不存在。八个实现者临时根目录（含首次失败轮次）、pytest cache/data 和临时 wrapper 文件已删除。共享 run 工具/browser 及本轮拉取的三个基础标签留给编排器最终清理；保留已有 PostgreSQL 镜像及 build cache。未访问或声称验证生产 DB/服务、宿主机硬件、公网 ACME 或 Server ARM64 运行。
 
-本地中文所有者 walkthrough 为 `development-notes/m3-20261011/walkthrough.md`（ignored，非 milestone 文件）。使用所有者新建 Python 3.12 venv/锁定依赖和唯一 Compose 项目，不依赖已删除开发工具；包含私有合成 fixture、空闲 loopback 端口、实际浏览器粘贴/操作、手动 A→B→A 提交、保真/授权/持久化检查及另行隔离恢复驱动。自动命令形式及浏览器断言已通过；**M3-10 独立审查已通过，所有者浏览器验收仍待确认**。须经所有者验收后，才能将 M3 标记为 accepted 并推进 M4。
+本地中文所有者 walkthrough `development-notes/m3-20261011/walkthrough.md` 属于原实现的未跟踪历史交接，现与简报一起标记暂缓，不作为修订后验收继续执行。M3-13 在实施/检查通过后刷新交接；引导启动命令由用户执行。修订检查与所有者走查通过前，M3 保持未验收。
 
-M3-10 独立审查通过，无修复轮次：完整回归 **582 passed / 19 skipped**；另行显式 Chromium **15 passed**、Server/Caddy **2 passed**、完整 Logger Compose/浏览器 **1 passed**、隔离恢复 **1 passed**、指定真实 HTTP pipeline **1 passed**。Ruff、格式及 diff 检查通过。审查自建的六个临时根目录及三个项目资源/应用标签均已清理。无未运行的 M3 自动任务检查；所有者验收仍待确认。
+M3-10 独立审查通过，无修复轮次：完整回归 **582 passed / 19 skipped**；另行显式 Chromium **15 passed**、原容器/配置 **2 passed**、完整 Logger Compose/浏览器 **1 passed**、隔离恢复 **1 passed**、指定真实 HTTP pipeline **1 passed**。Ruff、格式及 diff 检查通过。审查自建的六个临时根目录及三个项目资源/应用标签均已清理。原 M3-01–M3-10 无未运行的自动检查；修订 M3-11–M3-13 检查待执行，所有者验收暂缓。
 
-2026-10-12 最终清理核验：无残留 M3 测试容器/网络/卷及应用标签，无 `/tmp/watt-m3*` 目录。共享运行 venv/浏览器/cache 根目录及新建 Server 字节码缓存均已移除。三个本轮新下载基础标签均不存在（两个 Python 标签在最终审计时已不存在，Caddy 标签通过非强制删除移除）。预存 PostgreSQL 标签、其它项目/目录及共享 Docker 构建缓存保留。仅保留 `development-notes/m3-20261011/` 中本地中文 `summary.md` 和 `walkthrough.md` 两份所有者报告。未涉及生产数据、公网部署或 Git 推送。
+原运行于 2026-10-12 最终清理了其测试容器/网络/卷、应用/基础标签、临时 venv/浏览器/cache 根目录及新建 Server 字节码缓存。预存 PostgreSQL 镜像、其它资源及共享构建缓存保留。`development-notes/m3-20261011/` 只保留未跟踪中文 `summary.md` 和 `walkthrough.md`。未涉及生产数据、公网部署或 Git 推送。
+### 文档修订与走查停止（2026-10-12）
+
+所有者要求采用外部 Nginx 部署边界，本轮仅规划文档。已同步双语 Roadmap、架构、本文及 README；没有修改代码、测试、部署文件或生产反代配置。M3-11–M3-13 仍为计划。最近走查项目 `watt-m3-manual-1791792530-648400` 已停止并移除容器、网络、临时 DB/凭据卷及应用标签；按项目 label 查询为空，8081 和 18081 清理后无监听。保留预存基础镜像/其它项目。所有者验收暂缓。

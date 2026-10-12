@@ -44,4 +44,4 @@ Logger 在本地采集 DSMR 5，快照保持 pending；M2 尚未实现上传。�
 
 ## Server 容器
 
-Server 提供管理员注册、授权批量接收、读数和 CSV 导出；Logger 上传仍属于 M4。隔离开发、独立部署私有文件设置与清理见 [M3 已验证容器操作](docs/milestone/m3_zh.md#容器操作m3-08)。`up server` 只启动其 PostgreSQL／初始化依赖。开发使用 `admin`／`testtesttesttest`、回环端口 8081（可用 `WATT_DEV_SERVER_PORT` 覆盖）及项目私有卷。独立 [Compose](deploy/server/compose.yml) 必须提供所有者管理的秘密目录和域名；只有 Caddy 发布 80／443 端口。正常 `down` 保留数据。
+Server 已实现管理员注册、授权批量接收、读数和 CSV 导出；Logger 上传仍属于 M4。2026-10-12 的部署边界修订已规划：只发布一个可配置 HTTP 应用端口，HTTPS termination/证书/反代由所有者现有宿主机或上游 Nginx 负责，项目不内置反代。现有独立 [Compose](deploy/server/compose.yml) 尚未修订，原走查暂缓；按 [M3-11–M3-13](docs/milestone/m3_zh.md#m3-11--移除内置反代并整理单端口部署待实现) 实施和复验后更新操作说明。当前开发仍为 `admin`／`testtesttesttest`、默认回环 8081（`WATT_DEV_SERVER_PORT` 可覆盖），计划统一默认 18081；`up server` 只启动 PostgreSQL／初始化依赖，正常 `down` 保留数据。

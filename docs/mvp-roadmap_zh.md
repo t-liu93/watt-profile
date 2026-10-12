@@ -2,7 +2,7 @@
 
 > [English — 权威版本](mvp-roadmap.md) · **中文**
 
-状态：2026-10-12 更新。M1、M2 已验收，所有者已于 2026-10-11 确认 M2 人工走查通过。M3 实现及自动回归/HTTP/Chromium/Compose/恢复检查完成；M3-01–M3-10 独立审查通过，所有者浏览器走查验收仍待确认。M3 尚未验收；M4 上传器、集成交付恢复、公网部署和硬件验证仍待执行。[M3 完成记录](milestone/m3_zh.md#4-检查与完成记录)记录证据及限制。
+状态：2026-10-12，部署修订已规划。M1、M2 已验收；原 M3-01–M3-10 实现、自动检查和独立审查已完成。所有者现已调整部署边界：发布一个应用 HTTP 端口，由所有者现有上游 Nginx 管理 HTTPS termination 和反代。M3-11–M3-13 为尚未实现的计划，所有者走查暂缓，M3 尚未验收。本次仅更新文档，现有代码/部署文件尚未修订。[M3 完成记录](milestone/m3_zh.md#4-检查与完成记录)区分历史证据与待执行的新验收。
 
 本文定义首个可用版本。系统方向见[高层架构](architecture-and-roadmap_zh.md)；可复用源码及其限制见[协议交接文档](home-automation-energy-handover.md)。
 
@@ -62,7 +62,7 @@ SSH、网口地址、DHCP、Wi-Fi、公网连接和 WireGuard 均由所有者在
 
 ### Centralized Server 与回传契约
 
-- 使用 Docker Compose、Python/FastAPI、PostgreSQL，公网 HTTPS 入口使用 Caddy。首版由后端提供简单 HTML 表单、列表和数据表；React 留作后续界面选项。
+- 使用 Docker Compose、Python/FastAPI、PostgreSQL。中心 Server 只发布一个可配置应用 HTTP 端口；HTTPS termination、证书、域名路由及反代由所有者现有宿主机/上游 Nginx 管理。项目不交付或配置内置反代工具。首版由后端提供简单 HTML 表单、列表和数据表；React 留作后续界面选项。
 - 提供管理员登录、现场及设备登记、授权管理、状态、读数筛选查询和 CSV。支持通过 UUID 或地址查找现场，再按会话、设备和时间筛选读数。
 - 保存所有接纳的快照，常用电力指标使用可查询字段，其余脱敏字段使用 JSONB。接纳的快照至少保留一年，本地清理不删除中心端历史。
 - 上传使用配置的中心端 URL。公网使用 HTTPS，也支持所有者管理的 WireGuard 隧道内 HTTP。采集和 onboarding 不依赖 WireGuard，也不要求中心端立即可达。
@@ -81,10 +81,10 @@ SSH、网口地址、DHCP、Wi-Fi、公网连接和 WireGuard 均由所有者在
 | --- | --- | --- | --- |
 | **[M1 — 协议与契约](milestone/m1_zh.md)** | 独立项目骨架、P1 解析提取、电力字段映射及脱敏样本、身份／存储／上传契约 | 解析及映射检查通过；DSMR 5 profile 串口默认参数和字段明确，实物电表／线材兼容在 M4 验证；契约区分现场、设备、会话、来源和记录身份 | 1–2 天 |
 | **[M2 — 独立可用的 Logger](milestone/m2_zh.md)** | 本地配置和试读、Site UUID 与 Token、10 秒快照、SQLite、采集生命周期、状态；Logger Dockerfile／Compose 和本地浏览器走查 | 本地 Compose 构建／启动及浏览器走查通过；离线可配置和采集；重启保留身份、配置、读数及待上传状态；断线可恢复；换现场保留旧记录归属 | 2–3 天 |
-| **[M3 — 人工纳管的中心端](milestone/m3_zh.md)** | Server Dockerfile／Compose、PostgreSQL 与 Caddy 配置、本地浏览器走查、登录、现场／设备登记、授权批量接收、状态、筛选查询及 CSV | 本地 Compose 构建／启动及浏览器走查通过；未知凭据／现场被拒收；登记后可接收；重放不重复入库；可按 Site UUID 查找数据；CSV 与查询一致 | 2–3 天 |
+| **[M3 — 人工纳管的中心端](milestone/m3_zh.md)** | Server Dockerfile／Compose、PostgreSQL、单一应用 HTTP 端口、外部入口配置及本地浏览器走查、登录、现场／设备登记、授权批量接收、状态、筛选查询及 CSV | 本地 Compose 构建／启动及浏览器走查通过；未知凭据／现场被拒收；登记后可接收；重放不重复入库；可按 Site UUID 查找数据；CSV 与查询一致 | 2–3 天 |
 | **M4 — 完整试点版本** | Logger 上传及补传、集成开发 Compose、验证后的 Logger／Server 部署配置、端到端状态、硬件／资源验证及操作说明 | 容器化配置到 CSV 走查通过；断网、进程重启及响应丢失后可恢复；新旧现场不混淆；Pi 4 1 GB 与 3B+ 验证通过 | 1–2 天 |
 
-[M3 设计](milestone/m3_zh.md)固定服务端契约及十个顺序原子任务，包含 JSON 注册摘要互通、PostgreSQL 原子接收、完整流式 CSV、容器和隔离恢复。实现及自动检查完成；独立审查已通过，所有者验收仍待确认。不实现 M4 Logger 上传器。
+[M3 设计](milestone/m3_zh.md)规定结构化注册、PostgreSQL 原子接收、完整流式 CSV、容器和隔离恢复。原十项任务已有实现/检查证据；新的单端口、外部反代部署边界按 M3-11→M3-12→M3-13 顺序修订，三项均未执行。修订检查通过后再恢复所有者走查。不实现 M4 Logger 上传器。
 
 ### 容器交付与浏览器验收
 
@@ -93,8 +93,8 @@ SSH、网口地址、DHCP、Wi-Fi、公网连接和 WireGuard 均由所有者在
 | 阶段 | 必需容器交付物 | 本地验收入口 |
 | --- | --- | --- |
 | M2 — Data Logger | Logger Dockerfile、独立 Logger 部署 Compose，以及根目录支持 Logger 的 `docker-compose.dev.yml`；配置样例、SQLite／凭据持久化卷，以及硬件部署时显式串口设备映射说明。支持本地开发构建和目标 Linux ARM64 镜像。 | 用 Compose 本地构建并启动，再打开说明中的 Logger URL。开发环境默认使用明确标示的合成 P1 来源，不映射宿主机串口。走查现场配置、预览、启动／停止、状态，以及容器重建后的持久性；不要求中心端存在。 |
-| M3 — Centralized Server | Server Dockerfile，以及包含 PostgreSQL、迁移／启动处理、持久化存储和 Caddy HTTPS 配置的独立 Server 部署 Compose；在 `docker-compose.dev.yml` 中加入 Server 和隔离的开发 PostgreSQL 服务。Logger 与 Server 可在各自宿主机独立部署。 | 本地构建并启动 Server，打开说明中的管理员 URL，走查登录、现场／设备登记、授权、预置合成读数、筛选及 CSV。开发启动不要求公网域名、生产凭据或 M4 上传器。 |
-| M4 — 完整试点 | 更新两端部署配置，接入上传器与回传设置；提供使用真实 Logger／Server 服务及合成 P1 输入的联合开发 Compose 流程。验证实际生产部署说明和目标硬件配置。 | 通过两端页面完成登记、采集、上传、查询及 CSV；在隔离容器中复现断网、重启与积压恢复。Pi／电表实物验收仍是单独的必需检查。 |
+| M3 — Centralized Server | Server Dockerfile，以及仅含应用/PostgreSQL、迁移／启动处理、持久化存储和一个可配置应用 HTTP 端口的独立 Server 部署 Compose；在 `docker-compose.dev.yml` 中加入 Server 和隔离的开发 PostgreSQL 服务。Logger 与 Server 可在各自宿主机独立部署。 | 本地构建并启动 Server，打开说明中的管理员 URL，走查登录、现场／设备登记、授权、预置合成读数、筛选及 CSV。开发启动不要求公网域名、生产凭据、内置反代或 M4 上传器。上游 Nginx 与证书由所有者配置，项目不修改其生产配置。 |
+| M4 — 完整试点 | 更新两端部署配置，接入上传器与回传设置；提供使用真实 Logger／Server 服务及合成 P1 输入的联合开发 Compose 流程。验证应用部署说明和目标硬件配置；上游反代配置仍由所有者管理。 | 通过两端页面完成登记、采集、上传、查询及 CSV；在隔离容器中复现断网、重启与积压恢复。Pi／电表实物验收仍是单独的必需检查。 |
 
 每次交付均包含准确的 Compose 构建／启动／停止命令、无真实秘密的配置样例、浏览器 URL、必要的开发凭据／设置步骤、预期页面行为、健康／就绪检查、日志与资源清理说明。开发服务默认仅绑定本机，使用独立 Compose project、网络及可删除的卷／数据；不复用生产配置、外部生产卷或宿主机设备映射。清理只删除本次走查创建的资源。部署配置须保证容器重建后保留应用数据和凭据；销毁卷的清理仅适用于可删除的开发环境。
 
