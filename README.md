@@ -44,4 +44,14 @@ The login page and dashboard default to dark mode. Use the header button to swit
 
 ## Server containers
 
-The Server implements administrator registration, authorized batch ingest, readings and CSV export; Logger upload remains M4 work. The 2026-10-12 deployment revision is planned: publish one configurable application HTTP port, with HTTPS termination/certificates/reverse proxying owned by existing host/upstream Nginx; bundle no proxy. Existing standalone [Compose](deploy/server/compose.yml) is not yet revised and the original walkthrough is on hold. Implement and recheck [M3-11–M3-13](docs/milestone/m3.md#m3-11--remove-bundled-proxy-and-deliver-one-port-deployment-pending) before refreshing instructions. Current development still uses `admin` / `testtesttesttest` and loopback 8081 (`WATT_DEV_SERVER_PORT` override); the planned default is 18081. `up server` starts only PostgreSQL/setup dependencies; normal `down` preserves data.
+The Server implements administrator registration, authorized batch ingest, readings and CSV export; Logger upload remains M4 work. Standalone [Compose](deploy/server/compose.yml) contains only the application and PostgreSQL. It publishes one HTTP application port, default `127.0.0.1:18081` to container 8080; PostgreSQL has no host port. The owner's host/upstream Nginx manages HTTPS, certificates and reverse proxying independently. Revised external-HTTPS tests and owner acceptance remain pending in [M3](docs/milestone/m3.md).
+
+Copy the [sanitized example](deploy/server/.env.example) to ignored `deploy/server/.env.local` and replace every placeholder. Set `WATT_SERVER_PUBLIC_ORIGIN` to the external browser origin (HTTPS behind Nginx), keep `WATT_SERVER_COOKIE_SECURE=true` for HTTPS, and select `WATT_SERVER_BIND_ADDRESS` / `WATT_SERVER_PUBLISHED_PORT` if the upstream needs a reachable interface or another port. Provide private DB/application credential directories (0700) and files (0600); application files belong to UID/GID 10001 and mount read-only. The DB directory contains `password`; the application directory contains `database-url` and `admin-password`, with matching DB credentials and no development defaults. See the [operating instructions](docs/milestone/m3.md#m3-11-deployment-operations) before starting:
+
+```sh
+docker compose --env-file deploy/server/.env.local -p watt-server -f deploy/server/compose.yml config --quiet
+docker compose --env-file deploy/server/.env.local -p watt-server -f deploy/server/compose.yml up --build -d --wait --wait-timeout 120 server
+docker compose --env-file deploy/server/.env.local -p watt-server -f deploy/server/compose.yml down
+```
+
+Development uses `admin` / `testtesttesttest` and loopback 18081 (`WATT_DEV_SERVER_PORT` override). Choose a new disposable `watt-m3-...` project and matching `WATT_DEV_IMAGE_TAG`; `docker compose -p PROJECT -f docker-compose.dev.yml up --build -d --wait --wait-timeout 120 server` starts only PostgreSQL/setup dependencies. Normal `down` preserves data and credentials; removal of volumes is only for disposable projects created for verification.

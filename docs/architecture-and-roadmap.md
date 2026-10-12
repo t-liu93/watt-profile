@@ -2,7 +2,7 @@
 
 > **English** · [中文](architecture-and-roadmap_zh.md)
 
-Status: deployment revision planned, 2026-10-12. M1 and M2 are accepted. The original M3-01–M3-10 implementation, automated checks and independent reviews are complete. The owner has replaced the deployment boundary: publish one application HTTP port, with HTTPS termination and reverse proxying managed by the owner's existing upstream Nginx. M3-11–M3-13 are planned and unimplemented; owner walkthrough is on hold. M3 is not accepted. This change updates documentation only; existing code/deployment files have not yet been revised. The [M3 completion record](milestone/m3.md#4-checks-and-completion-record) distinguishes historical evidence from pending revised acceptance.
+Status: deployment revision in progress, 2026-10-12. The original M3-01–M3-10 implementation/checks/reviews are historical completion. M3-11 single-port application/PostgreSQL deployment passed implementation, task checks and independent review. M3-12 external-origin/HTTP boundary and M3-13 full regression/handoff remain pending. HTTPS termination and reverse proxying belong to the owner's existing upstream Nginx; the project configures no proxy. Owner walkthrough is on hold and M3 is not accepted.
 
 ## Purpose and boundaries
 

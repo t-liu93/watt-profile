@@ -1,9 +1,0 @@
-{$WATT_SERVER_DOMAIN} {
-    reverse_proxy server:8080 {
-        header_up -Forwarded
-        header_up -X-Forwarded-For
-        header_up -X-Forwarded-Host
-        header_up -X-Forwarded-Proto
-        header_up Host {$WATT_SERVER_DOMAIN}
-    }
-}

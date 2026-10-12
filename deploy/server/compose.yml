@@ -28,8 +28,10 @@ services:
       WATT_SERVER_DATABASE_URL_FILE: /run/server-credentials/database-url
       WATT_SERVER_ADMIN_USER: ${WATT_SERVER_ADMIN_USER:?required administrator username}
       WATT_SERVER_ADMIN_PASSWORD_FILE: /run/server-credentials/admin-password
-      WATT_SERVER_PUBLIC_ORIGIN: https://${WATT_SERVER_DOMAIN:?required domain}
-      WATT_SERVER_COOKIE_SECURE: "true"
+      WATT_SERVER_PUBLIC_ORIGIN: ${WATT_SERVER_PUBLIC_ORIGIN:?required external browser origin}
+      WATT_SERVER_COOKIE_SECURE: ${WATT_SERVER_COOKIE_SECURE:-true}
+    ports:
+      - "${WATT_SERVER_BIND_ADDRESS:-127.0.0.1}:${WATT_SERVER_PUBLISHED_PORT:-18081}:8080"
     volumes:
       - ${WATT_SERVER_SECRET_DIR:?required private directory}:/run/server-credentials:ro
     stop_grace_period: 30s
@@ -39,22 +41,5 @@ services:
       timeout: 3s
       retries: 12
       start_period: 10s
-  caddy:
-    image: caddy:2.10.2-alpine
-    depends_on:
-      server:
-        condition: service_healthy
-    environment:
-      WATT_SERVER_DOMAIN: ${WATT_SERVER_DOMAIN:?required domain}
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
-    stop_grace_period: 30s
 volumes:
   db-data:
-  caddy-data:
-  caddy-config:
