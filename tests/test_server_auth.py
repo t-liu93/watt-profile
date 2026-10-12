@@ -1,7 +1,10 @@
 """Independent administrator state and browser security with synthetic credentials."""
 
 import re
+from dataclasses import replace
 from pathlib import Path
+from urllib.parse import urlsplit
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -98,6 +101,7 @@ def test_login_security_cookie_throttle_and_logout(client):
     page = client.get("/login")
     assert "HttpOnly" in page.headers["set-cookie"]
     assert "SameSite=lax" in page.headers["set-cookie"]
+    assert "Secure" not in page.headers["set-cookie"]
     assert LOGIN_COOKIE in client.cookies
     token = re.search(r'name="csrf" value="([^"]+)"', page.text)[1]
     data = {"username": "admin", "password": "wrong", "csrf": token}
@@ -144,8 +148,6 @@ def test_host_origin_session_and_auth_separation(client):
 
 
 def test_secure_cookies_restart_and_shutdown(server_engine, server_settings):
-    from dataclasses import replace
-
     app = create_app(
         replace(server_settings, cookie_secure=True, public_origin="https://testserver")
     )
@@ -159,6 +161,124 @@ def test_secure_cookies_restart_and_shutdown(server_engine, server_settings):
         assert client.get("/api/admin/v1/sites").status_code == 401
 
 
+@pytest.mark.parametrize(
+    "origin", ["https://server.example.invalid", "https://server.example.invalid:8443"]
+)
+def test_external_https_origin_over_internal_http(server_engine, server_settings, origin):
+    """Model incoming upstream HTTP, explicitly carrying external browser cookies.
+
+    No proxy or TLS listener runs. The HTTP client's cookie jar must withhold
+    Secure cookies; explicit Cookie headers represent what the upstream received
+    from an HTTPS browser and forwarded to the application.
+    """
+    app = create_app(replace(server_settings, public_origin=origin, cookie_secure=True))
+    scopes = []
+
+    class CaptureConnection:
+        def __init__(self, app):
+            self.app = app
+
+        async def __call__(self, scope, receive, send):
+            if scope["type"] == "http":
+                scopes.append((scope["scheme"], tuple(scope["server"]), scope["client"]))
+            await self.app(scope, receive, send)
+
+    app.add_middleware(CaptureConnection)
+    authority = urlsplit(origin).netloc
+    headers = {"Host": authority, "Origin": origin}
+    spoofed = {
+        "Forwarded": f'for=192.0.2.1;host="{authority}";proto=https',
+        "X-Forwarded-Host": authority,
+        "X-Forwarded-Proto": "https",
+        "X-Forwarded-Port": str(urlsplit(origin).port or 443),
+        "X-Forwarded-For": "192.0.2.1",
+    }
+    with TestClient(app, base_url="http://internal.example.invalid:8080") as client:
+        assert client.get("/health/ready").status_code == 403
+        ready = client.get("/health/ready", headers={"Host": authority})
+        assert ready.status_code == 200 and ready.json() is True
+        redirect = client.get("/", headers=headers, follow_redirects=False)
+        assert redirect.status_code == 303 and redirect.headers["location"] == "/login"
+        page = client.get("/login", headers=headers)
+        assert page.status_code == 200
+        assert all(
+            part in page.headers["set-cookie"]
+            for part in ("Secure", "HttpOnly", "SameSite=lax", "Path=/")
+        )
+        token = re.search(r'name="csrf" value="([^"]+)"', page.text)[1]
+        data = {
+            "username": "admin",
+            "password": "synthetic-password-long-enough",
+            "csrf": token,
+        }
+        # A direct HTTP browser does not send the Secure pre-login cookie.
+        assert client.post("/login", data=data, headers=headers).status_code == 403
+        prelogin = {**headers, "Cookie": f"{LOGIN_COOKIE}={client.cookies[LOGIN_COOKIE]}"}
+        for wrong_origin in (
+            "https://evil.example.invalid",
+            "http://" + authority,
+            "https://server.example.invalid:8444",
+        ):
+            rejected = client.post(
+                "/login", data=data, headers={**prelogin, **spoofed, "Origin": wrong_origin}
+            )
+            assert rejected.status_code == 403
+            assert rejected.json()["error"]["code"] == "csrf_rejected"
+        logged_in = client.post("/login", data=data, headers=prelogin, follow_redirects=False)
+        assert logged_in.status_code == 303 and logged_in.headers["location"] == "/"
+        assert all("Secure" in value for value in logged_in.headers.get_list("set-cookie"))
+        identifier = client.cookies[COOKIE]
+        csrf = app.state.auth.session(identifier).csrf
+        authenticated = {**headers, "Cookie": f"{COOKIE}={identifier}", "X-CSRF-Token": csrf}
+        assert client.get("/api/admin/v1/sites", headers=headers).status_code == 401
+        assert client.get("/", headers=authenticated).status_code == 200
+        for wrong_host in ("evil.example.invalid", "server.example.invalid:8444"):
+            rejected = client.post(
+                "/api/admin/v1/sites",
+                json={"site_id": str(uuid4())},
+                headers={**authenticated, **spoofed, "Host": wrong_host},
+            )
+            assert rejected.status_code == 403
+            assert rejected.json()["error"]["code"] == "invalid_host"
+        if urlsplit(origin).port:
+            assert (
+                client.get("/health/ready", headers={"Host": "server.example.invalid"}).status_code
+                == 403
+            )
+        assert (
+            client.post(
+                "/api/admin/v1/sites",
+                json={"site_id": str(uuid4())},
+                headers={**authenticated, **spoofed, "Origin": "http://" + authority},
+            ).status_code
+            == 403
+        )
+        assert (
+            client.post(
+                "/api/admin/v1/sites",
+                json={"site_id": str(uuid4())},
+                headers={**authenticated, "X-CSRF-Token": "wrong"},
+            ).status_code
+            == 403
+        )
+        created = client.post(
+            "/api/admin/v1/sites", json={"site_id": str(uuid4())}, headers=authenticated
+        )
+        assert created.status_code == 200
+        sites = client.get("/api/admin/v1/sites", headers=authenticated)
+        assert sites.status_code == 200 and sites.json()["data"]["total"] == 1
+        assert sites.headers["cache-control"] == "no-store"
+        logout = client.post(
+            "/logout", data={"csrf": csrf}, headers=authenticated, follow_redirects=False
+        )
+        assert logout.status_code == 303 and logout.headers["location"] == "/login"
+        assert "Secure" in logout.headers["set-cookie"]
+        assert client.get("/api/admin/v1/sites", headers=authenticated).status_code == 401
+    assert scopes and all(scheme == "http" for scheme, _, _ in scopes)
+    assert all(server == ("internal.example.invalid", 8080) for _, server, _ in scopes)
+    assert all(peer[0] != "192.0.2.1" for _, _, peer in scopes)
+
+
 def test_construction_has_no_bootstrap_or_file_side_effects(monkeypatch):
     def forbidden(*args, **kwargs):
         raise AssertionError("construction performed I/O")
@@ -170,8 +290,6 @@ def test_construction_has_no_bootstrap_or_file_side_effects(monkeypatch):
 
 
 def test_internal_health_probe_uses_public_host(server_engine, server_settings):
-    from dataclasses import replace
-
     settings = replace(server_settings, public_origin="https://example.org")
     with TestClient(create_app(settings), base_url="http://127.0.0.1:8080") as client:
         assert client.get("/health/ready").status_code == 403

@@ -2,7 +2,7 @@
 
 > **中文** · [English — source of truth](m3.md)
 
-状态：2026-10-12，部署修订进行中。原 M3-01–M3-10 实现/检查/审查作为历史完成。M3-11 单端口应用/PostgreSQL 部署实现、任务检查及独立审查通过。M3-12 外部 origin/HTTP 边界及 M3-13 全量回归/交接仍待执行。HTTPS termination 和反代由所有者现有上游 Nginx 管理，项目不配置反代。所有者走查暂缓，M3 尚未验收。
+状态：2026-10-12，部署修订进行中。原 M3-01–M3-10 实现/检查/审查作为历史完成。M3-11 单端口应用/PostgreSQL 部署实现、任务检查及独立审查通过。M3-12 外部 origin/HTTP 验证及独立审查 61 项通过，无运行时代码变更；M3-13 全量回归/交接仍待执行。HTTPS termination 和反代由所有者现有上游 Nginx 管理，项目不配置反代。所有者走查暂缓，M3 尚未验收。
 
 ## 1. 目标与 Agent 使用方式
 
@@ -235,9 +235,9 @@ M3-11 已移除旧反代/域名耦合及关联资源，直接发布应用 HTTP �
 - 验收：静态渲染只有必要服务和一个应用端口；无反代/证书资源、DB 宿主端口或生产默认凭据。隔离实测 Server-only/Logger-only、ready、重建及 down/up 持久化；原 UUID/摘要/凭据保持不变。只清理本轮新建资源。
 - 检查：`tests/integration/test_server_compose.py`（更新现有旧配置检查）、`tests/integration/test_logger_compose.py`、Compose config、Ruff/format/diff。项目/标签/临时秘密必须全新；不拉起上游代理或配置宿主机 Nginx。
 
-### M3-12 — 验证外部 HTTPS 入口与内部 HTTP 边界（待实现）
+### M3-12 — 验证外部 HTTPS 入口与内部 HTTP 边界（已通过）
 
-依赖：M3-11 通过。契约：C1、C3、C8。状态：仅规划，本轮不执行。
+依赖：M3-11 通过。契约：C1、C3、C8。状态：61 项验证及独立审查通过，无运行时代码变更。
 
 - 边界：按必要性调整 Server settings/HTTP 及相关测试/说明；保留当前严格单入口 Host/Origin 和 CSRF，不新增任意 Host、通配转发信任或本地地址别名功能。
 - 验收：所有者配置 HTTPS public origin、内部应用仍使用 HTTP 时，匹配 Host/Origin 的登录和管理操作有效，cookie 标记 Secure、重定向为相对地址；含非默认外部端口的入口一致。错误 Host/Origin 仍拒绝；伪造 Forwarded/X-Forwarded-* 不能绕过校验。内部 HTTP ready 探针正确带 Host，开发 HTTP/Secure=false 可用。
@@ -404,7 +404,7 @@ WATT_TEST_POSTGRES=1 PLAYWRIGHT_BROWSERS_PATH=/tmp/watt-m3-run.Qsb5bu/browser /t
 | M3-09 演示/恢复 | 18 项演示/恢复检查；独立审查与集成检查通过 |
 | M3-10 原集成验收与交接 | 历史实现/检查/审查完成；原部署交接被取代，所有者验收暂缓 |
 | M3-11 无内置反代单端口部署 | 4 项 Server、1 项 Logger Compose/浏览器通过；独立审查/集成检查通过 |
-| M3-12 外部 origin/内部 HTTP 边界 | 仅规划；实现及检查待执行 |
+| M3-12 外部 origin/内部 HTTP 边界 | 61 项定向检查通过；独立审查/集成检查通过；无运行时代码变更 |
 | M3-13 修订后回归与交接 | 仅规划；实现/检查/所有者走查待执行 |
 | 原完整回归及静态/安装包检查 | 历史 582 passed；19 项 opt-in 检查另行通过；新全量结果待 M3-13 |
 | 真实 PostgreSQL 并发/原子性/CSV 检查 | 原回归/pipeline 通过；M3-13 验证保持 |
@@ -414,7 +414,7 @@ WATT_TEST_POSTGRES=1 PLAYWRIGHT_BROWSERS_PATH=/tmp/watt-m3-run.Qsb5bu/browser /t
 | 上游 Nginx/TLS 配置 | 所有者管理，不属于项目实现 |
 | 公网试点验证、Logger 上传器/恢复、物理硬件 | M4，不由 M3 声明通过 |
 
-每完成一项，在此同步双语追加实际命令、结果、环境/镜像版本、重要修复、不可用检查和清理证据。原自动证据不等于修订部署验收。M3-11 实现/任务检查及独立审查已通过；M3-12/M3-13 尚未实现/验证。全部修订检查和独立审查通过后再恢复所有者走查。
+每完成一项，在此同步双语追加实际命令、结果、环境/镜像版本、重要修复、不可用检查和清理证据。原自动证据不等于修订部署验收。M3-11 实现/任务检查及独立审查已通过；M3-12 验证及独立审查已通过；M3-13 仍待执行。全部修订检查和独立审查通过后再恢复所有者走查。
 
 ### 容器操作（M3-08 历史，修订交接待执行）
 
@@ -571,3 +571,26 @@ env -u WATT_SERVER_DATABASE_URL -u WATT_SERVER_DATABASE_URL_FILE \
 完整 Logger Compose／Chromium 回归 **1 test passed**，107.02 秒，使用独立 `watt-m2-11-20261012-impl-a` 项目／标签及空闲回环端口 46737。包装脚本预检项目全部容器（含停止）、网络、卷及精确镜像标签均不存在；以 `up --build -d --wait --wait-timeout 120 logger` 只启动 `logger`／`logger-init`，运行 `tests/integration/test_logger_compose.py -q`，临时路径为 `/tmp/watt-m3-revision-ebl8gqc6/m3-11-logger-a/pytest`、缓存位于该根下，Chromium 位于 `/tmp/watt-m3-revision-ebl8gqc6/browser`，随后仅删除该项目资源／标签并确认不存在。Server 构建使用 `python:3.12.13-slim-bookworm` 和 PostgreSQL `17.6-alpine`；Logger 保留 `python:3.12-slim`。使用 Docker Engine 29.8.0 和 Compose v5.5.1。BuildKit 解析 Python 基础镜像但未创建本地 Python 镜像标签；保留既有 PostgreSQL 基础标签。Ruff、format 和 diff 检查通过。M3-11 未运行且不要求生产／硬件／上游反代检查。
 
 M3-11 独立审查通过，无修复轮次：**4 项 Server 检查（77.11s）**、**1 项完整 Logger Compose/Chromium（107.00s）**，Ruff/格式/diff 通过。审查自建容器（含停止）、网络、卷、应用标签及私有测试/cache/脚本目录全部删除，共享工具/基础镜像保留。外部 HTTPS 边界及全量修订验收仍为 M3-12/M3-13，所有者验收暂缓。
+
+### M3-12 实现验证（2026-10-12）
+
+现有 Server 设置、HTTP 边界和 CLI 已满足外部源契约；本任务仅修改验证和说明。新增参数化测试配置 `https://server.example.invalid` 和 `https://server.example.invalid:8443`，所有捕获的应用 ASGI 请求均使用 HTTP，内部 server 地址为 `internal.example.invalid:8080`。匹配的外部 Host/Origin 允许预登录 CSRF、登录、已认证仪表盘、站点创建／列表和登出。Cookie 保持 Secure/HttpOnly/SameSite=Lax/path `/`，重定向保持相对路径；缺少／错误端口、错误 Host、错误 Origin scheme/authority 和无效 CSRF 均拒绝。伪造 `Forwarded` 和 `X-Forwarded-Host/Proto/Port/For` 不能使被拒请求通过或替换直连 peer。内部 HTTP 就绪仅在携带配置的 Host 时成功；现有开发登录测试新增明确断言，`WATT_SERVER_COOKIE_SECURE=false` 时不含 Secure。
+
+HTTP 测试客户端的 Cookie jar 不发送 Secure Cookie。显式 Cookie 请求头模拟外部 HTTPS 浏览器发给所有者上游、上游经内部 HTTP 转送到应用的 Cookie。这是应用边界模型，不是浏览器／TLS 集成或上游证书验证。上游的 Host authority 必须与配置的公网源一致，包括非默认公网端口；不得用内部 HTTP URL 替换 HTTPS 公网源。现有开发和独立部署就绪命令请求 `http://127.0.0.1:8080/health/ready`，Host 为 `urlsplit(WATT_SERVER_PUBLIC_ORIGIN).netloc`。本任务没有运行时／部署变更，因此无需额外运行 Compose 或浏览器；未操作反代、Nginx、证书、生产资源或硬件。
+
+四个指定套件通过临时资源审计 Python 包装脚本运行，环境和 pytest 参数如下：
+
+```sh
+env -u WATT_SERVER_DATABASE_URL -u WATT_SERVER_DATABASE_URL_FILE \
+  WATT_TEST_POSTGRES=1 PYTHONDONTWRITEBYTECODE=1 \
+  TMPDIR=/tmp/watt-m3-revision-ebl8gqc6/m3-12-check-02 \
+  /tmp/watt-m3-revision-ebl8gqc6/venv/bin/python -m pytest \
+  tests/test_server_bootstrap.py tests/test_server_api.py \
+  tests/test_server_auth.py tests/test_m3_pipeline.py -q \
+  --basetemp=/tmp/watt-m3-revision-ebl8gqc6/m3-12-check-02/pytest \
+  -o cache_dir=/tmp/watt-m3-revision-ebl8gqc6/m3-12-check-02/cache
+```
+
+结果：**61 passed**，6.30 秒，使用 Python 3.12.13 及可丢弃 PostgreSQL `17.6-alpine`。保留一条现有 Starlette TestClient/httpx 弃用警告。首次运行结果为 59 passed/2 failed，因新增断言将 ASGI server 列表与元组比较；规范化捕获地址后，在新的临时根下完整重跑通过。两次运行均预检精确新容器名称（含停止容器），各创建两个隔离 PostgreSQL 容器／匿名数据卷，并在清理后确认容器、卷及私有 URL 目录不存在。未创建或删除应用镜像／标签、项目网络或共享资源。任务自建 pytest/cache/包装脚本/台账目录已删除；共享 Python／浏览器／基础镜像留待最终运行清理。Ruff check 和 format 使用 `--no-cache`，以及 `git diff --check` 均通过。独立审查和 M3-13 验收由编排者另行记录。
+
+M3-12 独立审查通过，无修复轮次：**61 项定向检查（6.31s）**，Ruff/103 文件格式/diff 及独立/开发部署配置与 readiness 只读渲染通过。审查创建的 PostgreSQL 容器、匿名卷、私有 URL 文件及测试目录已清理。此项只增加验证，无需额外 runtime、浏览器、反代/TLS 或生产测试。全量修订回归及交接仍为 M3-13；真实上游 TLS 由所有者管理，未测试。

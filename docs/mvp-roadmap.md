@@ -2,7 +2,7 @@
 
 > **English — source of truth** · [中文](mvp-roadmap_zh.md)
 
-Status: deployment revision in progress, 2026-10-12. The original M3-01–M3-10 implementation/checks/reviews are historical completion. M3-11 single-port application/PostgreSQL deployment passed implementation, task checks and independent review. M3-12 external-origin/HTTP boundary and M3-13 full regression/handoff remain pending. HTTPS termination and reverse proxying belong to the owner's existing upstream Nginx; the project configures no proxy. Owner walkthrough is on hold and M3 is not accepted.
+Status: deployment revision in progress, 2026-10-12. The original M3-01–M3-10 implementation/checks/reviews are historical completion. M3-11 single-port application/PostgreSQL deployment passed implementation, task checks and independent review. M3-12 external-origin/HTTP verification and independent review passed 61 targeted checks with no runtime change. M3-13 full regression/handoff remains pending. HTTPS termination and reverse proxying belong to the owner's existing upstream Nginx; the project configures no proxy. Owner walkthrough is on hold and M3 is not accepted.
 
 This roadmap defines the first usable release. See the [high-level architecture](architecture-and-roadmap.md) for the system direction and the [protocol handover](home-automation-energy-handover.md) for reusable source code and its limitations.
 
@@ -84,7 +84,7 @@ Advance in order: **M1 → M2 → M3 → M4**. Finish each milestone's acceptanc
 | **[M3 — Manually managed server](milestone/m3.md)** | Server Dockerfile/Compose with PostgreSQL, one application HTTP port, external-origin configuration and local browser walkthrough, login, site/device registration, authorized batch ingest, status, filtered queries and CSV | Local Compose build/start and browser walkthrough pass; unknown credentials/sites are rejected; registration permits ingest; replay does not duplicate readings; data can be found by Site UUID; CSV matches queries | 2–3 days |
 | **M4 — Integrated pilot release** | Logger uploader and backlog recovery, integrated development Compose, validated Logger/server deployment configurations, end-to-end status, hardware/resource verification and operation instructions | Containerized configuration-to-CSV walkthrough passes; network loss, process restart, and lost responses recover; old/new site records remain separate; Pi 4 1 GB and 3B+ verification passes | 1–2 days |
 
-The [M3 design](milestone/m3.md) specifies structured registration, atomic PostgreSQL ingest, complete streaming CSV, containers and isolated recovery. The original ten tasks have implementation/check evidence; revise deployment to the one-port, external-proxy boundary in order M3-11→M3-12→M3-13. M3-11 passed implementation/checks/independent review; M3-12/M3-13 remain pending. Resume owner walkthrough only after the revised checks pass. The M4 Logger uploader is excluded.
+The [M3 design](milestone/m3.md) specifies structured registration, atomic PostgreSQL ingest, complete streaming CSV, containers and isolated recovery. The original ten tasks have implementation/check evidence; revise deployment to the one-port, external-proxy boundary in order M3-11→M3-12→M3-13. M3-11 passed implementation/checks/independent review; M3-12 verification/review passed; M3-13 remains pending. Resume owner walkthrough only after the revised checks pass. The M4 Logger uploader is excluded.
 
 ### Container delivery and browser acceptance
 

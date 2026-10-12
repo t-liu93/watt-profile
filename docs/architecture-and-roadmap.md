@@ -2,7 +2,7 @@
 
 > **English** · [中文](architecture-and-roadmap_zh.md)
 
-Status: deployment revision in progress, 2026-10-12. The original M3-01–M3-10 implementation/checks/reviews are historical completion. M3-11 single-port application/PostgreSQL deployment passed implementation, task checks and independent review. M3-12 external-origin/HTTP boundary and M3-13 full regression/handoff remain pending. HTTPS termination and reverse proxying belong to the owner's existing upstream Nginx; the project configures no proxy. Owner walkthrough is on hold and M3 is not accepted.
+Status: deployment revision in progress, 2026-10-12. The original M3-01–M3-10 implementation/checks/reviews are historical completion. M3-11 single-port application/PostgreSQL deployment passed implementation, task checks and independent review. M3-12 external-origin/HTTP verification and independent review passed 61 targeted checks with no runtime change. M3-13 full regression/handoff remains pending. HTTPS termination and reverse proxying belong to the owner's existing upstream Nginx; the project configures no proxy. Owner walkthrough is on hold and M3 is not accepted.
 
 ## Purpose and boundaries
 
