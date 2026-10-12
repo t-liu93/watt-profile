@@ -44,7 +44,7 @@ Logger 在本地采集 DSMR 5，快照保持 pending；M2 尚未实现上传。�
 
 ## Server 容器
 
-Server 已实现管理员注册、授权批量接收、读数和 CSV 导出；Logger 上传仍属于 M4。独立 [Compose](deploy/server/compose.yml) 仅包含应用和 PostgreSQL，只发布一个 HTTP 应用端口，默认将 `127.0.0.1:18081` 映射到容器 8080；PostgreSQL 不发布宿主端口。所有者的宿主机／上游 Nginx 独立管理 HTTPS、证书和反代。外部 origin/HTTP 验证已通过，修订全量回归和所有者验收仍待 [M3](docs/milestone/m3_zh.md) 完成。
+Server 已实现管理员注册、授权批量接收、读数和 CSV 导出；Logger 上传仍属于 M4。独立 [Compose](deploy/server/compose.yml) 仅包含应用和 PostgreSQL，只发布一个 HTTP 应用端口，默认将 `127.0.0.1:18081` 映射到容器 8080；PostgreSQL 不发布宿主端口。所有者的宿主机／上游 Nginx 独立管理 HTTPS、证书和反代。外部 origin/HTTP 验证及修订自动回归已通过，所有者验收仍待 [M3](docs/milestone/m3_zh.md) 完成。
 
 将[脱敏示例](deploy/server/.env.example)复制到被忽略的 `deploy/server/.env.local` 并替换所有占位符。将 `WATT_SERVER_PUBLIC_ORIGIN` 设为外部浏览器源（经 Nginx 使用 HTTPS），HTTPS 保持 `WATT_SERVER_COOKIE_SECURE=true`；若上游需要可达接口或其他端口，选择 `WATT_SERVER_BIND_ADDRESS`／`WATT_SERVER_PUBLISHED_PORT`。提供私有 DB／应用凭据目录（0700）及文件（0600）；应用文件归 UID/GID 10001 所有并只读挂载。DB 目录包含 `password`；应用目录包含 `database-url` 和 `admin-password`，DB 凭据必须一致且不提供开发默认值。启动前阅读[操作说明](docs/milestone/m3_zh.md#m3-11-部署操作)：
 

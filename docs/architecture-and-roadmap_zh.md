@@ -2,7 +2,7 @@
 
 > [English](architecture-and-roadmap.md) · **中文**
 
-状态：2026-10-12，部署修订进行中。原 M3-01–M3-10 实现/检查/审查作为历史完成。M3-11 单端口应用/PostgreSQL 部署实现、任务检查及独立审查通过。M3-12 外部 origin/HTTP 验证及独立审查 61 项通过，无运行时代码变更；M3-13 全量回归/交接仍待执行。HTTPS termination 和反代由所有者现有上游 Nginx 管理，项目不配置反代。所有者走查暂缓，M3 尚未验收。
+状态：2026-10-12，部署修订实现、自动检查及独立审查全部完成。原 M3-01–M3-10 证据保留为历史记录。M3-11 发布单一应用 HTTP 端口，PostgreSQL 不暴露端口；M3-12 外部 origin/内部 HTTP 验证通过，无运行时代码变更；M3-13 全量回归及新交接通过。HTTPS termination 和反代由所有者现有上游 Nginx 管理，项目不配置反代。可恢复所有者走查，人工验收尚未通过；M3 仍未验收，M4 不推进。
 
 ## 目标与边界
 
@@ -49,4 +49,4 @@ MVP 按依赖关系推进：**M1 协议与契约 → M2 独立 Logger → M3 人
 - 凭据／现场授权、UUID 稳定性、换现场不改旧记录归属、采集／上传期间重启、长期断网、响应丢失、重放和去重。
 - 查询与 CSV 一致。图表一致性、报告数字可追溯、模型不可用和 Modbus 实物验证属于后续阶段检查。
 
-[M1 文档](milestone/m1_zh.md)内包含首个 P1 profile、具体 API／schema 契约及八个原子实现任务；可执行协议／领域／上传契约、诊断 probe 和离线检查已经实现并通过独立审查；存储已由 M2 SQLite 和 M3 PostgreSQL 仓储实现。参见[完成记录](milestone/m1_zh.md#4-检查与完成记录)。[M2 设计](milestone/m2_zh.md)规定独立 Logger 及十个原子任务；M2 将记录本地保存为 pending，不实现网络上传。[M3 设计](milestone/m3_zh.md)规定手动管理服务端及原十个顺序原子任务：结构化注册、PostgreSQL 接收、查询/完整 CSV、容器和隔离恢复；现新增 M3-11–M3-13，将部署修订为单 HTTP 端口及所有者管理的外部反代。Logger 上传器仍属于 M4。每个 milestone 在 `docs/milestone/` 下的一份英文 Markdown 及中文镜像内维护设计、任务和验收记录。快照大小和容量在 MVP 验证中测量。未来 Modbus 具体型号、AI 模型、报告呈现和远程配置／升级机制留待后续设计。
+[M1 文档](milestone/m1_zh.md)内包含首个 P1 profile、具体 API／schema 契约及八个原子实现任务；可执行协议／领域／上传契约、诊断 probe 和离线检查已经实现并通过独立审查；存储已由 M2 SQLite 和 M3 PostgreSQL 仓储实现。参见[完成记录](milestone/m1_zh.md#4-检查与完成记录)。[M2 设计](milestone/m2_zh.md)规定独立 Logger 及十个原子任务；M2 将记录本地保存为 pending，不实现网络上传。[M3 设计](milestone/m3_zh.md)规定手动管理服务端及原十个顺序原子任务：结构化注册、PostgreSQL 接收、查询/完整 CSV、容器和隔离恢复；M3-11 已实现单 HTTP 端口及所有者管理的外部反代边界，M3-12 验证应用边界，M3-13 更新回归与交接。Logger 上传器仍属于 M4。每个 milestone 在 `docs/milestone/` 下的一份英文 Markdown 及中文镜像内维护设计、任务和验收记录。快照大小和容量在 MVP 验证中测量。未来 Modbus 具体型号、AI 模型、报告呈现和远程配置／升级机制留待后续设计。

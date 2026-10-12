@@ -56,7 +56,13 @@ def test_private_demo_and_new_database_recovery(tmp_path):
     image = "watt-profile-server-dev:" + tag
     for kind in ("container", "network", "volume"):
         assert not shell(
-            "docker", kind, "ls", "-q", "--filter", "label=com.docker.compose.project=" + project
+            "docker",
+            kind,
+            "ls",
+            *(["--all"] if kind == "container" else []),
+            "-q",
+            "--filter",
+            "label=com.docker.compose.project=" + project,
         ).strip()
     assert not shell("docker", "image", "ls", "-q", image).strip()
     port, restored_port = free_port(), free_port()
