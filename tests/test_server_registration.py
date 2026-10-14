@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 from threading import Barrier, Event
+from time import monotonic, sleep
 from uuid import uuid1, uuid4
 
 import pytest
@@ -412,6 +413,21 @@ def test_concurrent_cross_device_hash_unique_conflict_rolls_back(repo):
     assert counts(repo) == (1, 1, 1, 1)
 
 
+def assert_waiting_advisory_lock(holder):
+    # before_cursor_execute fires before PostgreSQL receives the request.
+    deadline = monotonic() + 3
+    while monotonic() < deadline:
+        if (
+            holder.scalar(
+                text("SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND NOT granted")
+            )
+            == 1
+        ):
+            return
+        sleep(0.01)
+    pytest.fail("Expected an independent PostgreSQL transaction waiting on advisory lock")
+
+
 def test_registration_waits_for_cross_connection_shared_device_lock(repo):
     value = summary()
     attempted = Event()
@@ -428,15 +444,7 @@ def test_registration_waits_for_cross_connection_shared_device_lock(repo):
                 attempted.clear()
                 pending = executor.submit(repo.commit, value)
                 assert attempted.wait(2) and not pending.done()
-                assert (
-                    holder.scalar(
-                        text(
-                            "SELECT count(*) FROM pg_locks "
-                            "WHERE locktype='advisory' AND NOT granted"
-                        )
-                    )
-                    == 1
-                )
+                assert_waiting_advisory_lock(holder)
             assert pending.result(timeout=5).credential_id
     finally:
         event.remove(repo.engine, "before_cursor_execute", observe)
@@ -536,15 +544,7 @@ def test_access_mutations_use_shared_cross_connection_locks(repo, kind):
                 attempted.clear()
                 pending = executor.submit(operations[kind])
                 assert attempted.wait(2) and not pending.done()
-                assert (
-                    holder.scalar(
-                        text(
-                            "SELECT count(*) FROM pg_locks "
-                            "WHERE locktype='advisory' AND NOT granted"
-                        )
-                    )
-                    == 1
-                )
+                assert_waiting_advisory_lock(holder)
             pending.result(timeout=5)
     finally:
         event.remove(repo.engine, "before_cursor_execute", observe)

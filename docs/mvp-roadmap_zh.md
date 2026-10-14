@@ -4,6 +4,8 @@
 
 状态：2026-10-14，M3 已验收。实现、自动验证及独立任务审查已完成；所有者完成修订后单端口走查并确认清理。UI 修订通过定向浏览器/布局检查及所有者视觉检查。人工略过项及相应自动证据记录于 M3 完成记录。独立部署仅含 HTTP 应用和不暴露端口的 PostgreSQL；HTTPS/反代由所有者上游 Nginx 管理。M4 为下一里程碑，尚未开始。
 
+M4 前增加交付准备步骤：[CI 与容器镜像发布](ci-and-release_zh.md)。每次 push 运行完整测试，版本 tag 才构建并向 GHCR 发布 Logger/Server 的 AMD64、ARM64 镜像，支持先在树莓派测试本地采集。M4 上传与真实硬件验收仍未开始。
+
 本文定义首个可用版本。系统方向见[高层架构](architecture-and-roadmap_zh.md)；可复用源码及其限制见[协议交接文档](home-automation-energy-handover.md)。
 
 ## 1. 目标与首版边界

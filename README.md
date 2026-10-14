@@ -4,6 +4,10 @@
 
 Independent Python package for the Watt Profile P1 protocol and contracts.
 
+## CI and published images
+
+Every push runs the complete synthetic CI suite. Version tags release separate Logger and Server images to GHCR for AMD64 and ARM64, after checks and native image tests pass. See [CI, release tags and Raspberry Pi pull instructions](docs/ci-and-release.md). Logger stores data locally in SQLite; upload remains M4 work.
+
 ## Development environment
 
 Use Python 3.12 and create a unique isolated virtual environment outside the checkout. Install `requirements.lock` for the Logger runtime, or `requirements-dev.lock` to work on the project and run its checks:

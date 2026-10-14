@@ -4,6 +4,10 @@
 
 Watt Profile P1 协议和数据契约的独立 Python 包。
 
+## CI 与发布镜像
+
+每次 push 执行完整合成数据 CI。版本 tag 在检查和原生镜像测试通过后，将独立的 Logger、Server AMD64/ARM64 镜像发布到 GHCR。参阅 [CI、发布标签与树莓派拉取说明](docs/ci-and-release_zh.md)。Logger 已使用 SQLite 本地保存数据；上传仍属于 M4。
+
 ## 开发环境
 
 使用 Python 3.12，并在仓库外创建唯一的隔离虚拟环境。Logger 运行环境安装 `requirements.lock`；项目开发和运行检查安装 `requirements-dev.lock`：

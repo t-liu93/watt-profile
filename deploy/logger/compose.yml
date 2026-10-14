@@ -1,6 +1,6 @@
 # Standalone serial deployment. Supply all required values using --env-file.
 x-image: &image
-  image: watt-profile-logger:${WATT_IMAGE_TAG:-local}
+  image: ${WATT_LOGGER_IMAGE:-watt-profile-logger:${WATT_IMAGE_TAG:-local}}
   build:
     context: ../..
     dockerfile: deploy/logger/Dockerfile

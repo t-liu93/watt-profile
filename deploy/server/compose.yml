@@ -16,7 +16,7 @@ services:
       retries: 12
       start_period: 10s
   server:
-    image: watt-profile-server:${WATT_SERVER_IMAGE_TAG:-local}
+    image: ${WATT_SERVER_IMAGE:-watt-profile-server:${WATT_SERVER_IMAGE_TAG:-local}}
     build:
       context: ../..
       dockerfile: deploy/server/Dockerfile

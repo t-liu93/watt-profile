@@ -4,6 +4,8 @@
 
 Status: M3 accepted, 2026-10-14. Implementation, automated verification and independent task reviews are complete; the owner completed the revised single-port walkthrough and confirmed cleanup. The UI corrections passed targeted browser/layout checks and owner visual checks. Manual omissions and their automated coverage are recorded in the M3 completion record. Standalone contains the HTTP application and private PostgreSQL; HTTPS/reverse proxying belong to the owner's upstream Nginx. M4 is next and has not started.
 
+A delivery preparation step precedes M4: [CI and container releases](ci-and-release.md). Every push runs complete checks; version tags build and publish separate AMD64/ARM64 Logger and Server images to GHCR, enabling local collection trials on the Pi. M4 upload implementation and physical-hardware acceptance have not started.
+
 This roadmap defines the first usable release. See the [high-level architecture](architecture-and-roadmap.md) for the system direction and the [protocol handover](home-automation-energy-handover.md) for reusable source code and its limitations.
 
 ## 1. Goal and release boundary
