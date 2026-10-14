@@ -45,7 +45,7 @@
   }
   function data(form) { return Object.fromEntries(new FormData(form)); }
   function node(tag, text) { const n = document.createElement(tag); n.textContent = value(text); return n; }
-  function link(url, label) { const n = node('a',label); n.href = url; return n; }
+  function link(url, label, className = '') { const n = node('a',label); n.href = url; n.className = className; return n; }
   function details(target, entries) {
     target.replaceChildren(); entries.forEach(([k,v]) => target.append(node('dt',k),node('dd',v)));
   }
@@ -81,9 +81,11 @@
     }); buttons(kind,size);
   }
   function registrationResult(result, target) {
+    const actions = node('div', ''); actions.className = 'action-row';
+    actions.append(link('/sites/'+result.site.site_id,'Open registered site','button-link'),
+      link('/devices/'+result.device_id,'Open registered device','button-link'));
     target.replaceChildren(node('p', 'Registration applied. Actual actions: '+JSON.stringify(result.actions)),
-      link('/sites/'+result.site.site_id,'Open registered site'),node('span',' · '),link('/devices/'+result.device_id,'Open registered device'),
-      node('pre',JSON.stringify(result.site,null,2)));
+      actions,node('pre',JSON.stringify(result.site,null,2)));
   }
   if (page === 'dashboard') {
     form('registration-form', async () => {

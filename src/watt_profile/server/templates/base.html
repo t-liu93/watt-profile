@@ -5,17 +5,21 @@
 <script src="/static/theme.js"></script><link rel="stylesheet" href="/static/server.css">
 <script src="/static/server.js" defer></script></head>
 <body data-page="{{ page }}" data-object-id="{{ object_id }}">
-<header><h1>Watt Profile Server</h1><button id="theme-toggle" type="button">Light mode</button>
-<nav><a href="/">Dashboard</a> · <a href="/#registration">Register Logger</a></nav>
-<form method="post" action="/logout" id="logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Log out</button></form></header>
+<header class="app-header"><h1>Watt Profile Server</h1>
+<div class="header-actions">
+<nav class="action-row" aria-label="Main navigation"><a class="button-link" href="/">Dashboard</a><a class="button-link" href="/#registration">Register Logger</a></nav>
+<button id="theme-toggle" type="button">Light mode</button>
+<form method="post" action="/logout" id="logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button>Log out</button></form>
+</div></header>
 <p id="error" role="alert" hidden></p><a id="login-link" href="/login" hidden>Log in again</a>
 <p id="message" role="status"></p><button id="reload" type="button">Reload status / retry</button>
 <main>
 {% if page == 'dashboard' %}
 <section id="registration"><h2>Register Logger</h2><p>Paste the JSON copied from Logger. Preview makes no changes. Confirm rechecks current state. Existing site metadata is preserved.</p>
-<form id="registration-form"><label>Logger registration JSON<textarea id="summary" required autocomplete="off" spellcheck="false"></textarea></label><button>Preview registration</button></form>
+<form id="registration-form"><label>Logger registration JSON<textarea id="summary" required autocomplete="off" spellcheck="false"></textarea></label>
+<div class="action-row registration-actions"><button type="submit">Preview registration</button><button id="cancel-registration" type="button">Cancel registration</button></div></form>
 <div id="registration-preview" hidden><h3>Masked preview</h3><pre id="preview"></pre><button id="register" type="button">Confirm registration</button></div>
-<button id="cancel-registration" type="button">Cancel registration</button><div id="registration-result"></div></section>
+<div id="registration-result"></div></section>
 <section><h2>Sites</h2><form id="search"><label>Address contains<input name="q"></label><label>Exact site UUID<input name="site_id"></label><button>Search sites</button></form><div id="sites"></div><button id="sites-prev">Previous sites</button><button id="sites-next">Next sites</button>
 <details><summary>Create site separately</summary><form id="create-site"><label>Site UUID<input name="site_id" required></label><label>Address<textarea name="address" maxlength="500"></textarea></label><label>Description<textarea name="description" maxlength="2000"></textarea></label><button>Create site</button></form></details></section>
 <section><h2>Devices</h2><div id="devices"></div><button id="devices-prev">Previous devices</button><button id="devices-next">Next devices</button><form id="create-device"><label>Device UUID<input name="device_id" required></label><button>Create device</button></form></section>

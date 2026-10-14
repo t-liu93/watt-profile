@@ -1,3 +1,33 @@
-:root {color-scheme:dark; --bg:#131923; --fg:#e7edf5; --panel:#202a38; --border:#526478; --link:#9bcfff}
-:root[data-theme="light"] {color-scheme:light; --bg:#f4f7fa; --fg:#172333; --panel:#fff; --border:#7a8ba1; --link:#125aa3}
+:root {color-scheme:dark; --bg:#131923; --fg:#e7edf5; --panel:#202a38; --border:#526478; --link:#9bcfff; --control:#2b3b50; --control-hover:#354a64}
+:root[data-theme="light"] {color-scheme:light; --bg:#f4f7fa; --fg:#172333; --panel:#fff; --border:#7a8ba1; --link:#125aa3; --control:#edf2f8; --control-hover:#dce6f2}
 * {box-sizing:border-box} body {max-width:1100px;margin:auto;padding:1rem;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,sans-serif} a {color:var(--link)} header,section,dialog {padding:1rem;background:var(--panel);border:1px solid var(--border);border-radius:.4rem;margin-bottom:1rem} header form {display:inline-block} label {display:block;margin:.6rem 0} input,textarea,button {font:inherit;padding:.45rem;max-width:100%} input,textarea {display:block;width:100%} textarea {min-height:5rem} button {margin:.25rem;cursor:pointer} button:disabled {cursor:default} :focus-visible {outline:3px solid var(--link);outline-offset:2px} pre,dd {white-space:pre-wrap;overflow-wrap:anywhere} dt {font-weight:600} dd {margin:0 0 .6rem} .table-scroll {overflow-x:auto} table {border-collapse:collapse;width:100%} th,td {text-align:left;border-bottom:1px solid var(--border);padding:.5rem} #error {border:2px solid #d96868;padding:1rem} dialog {max-width:min(850px,95vw);max-height:90vh;overflow:auto;color:var(--fg)} [hidden] {display:none!important}
+
+button, .button-link {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:2.75rem;
+  padding:.5rem .85rem;
+  border:1px solid var(--border);
+  border-radius:.35rem;
+  background:var(--control);
+  color:var(--fg);
+  font:inherit;
+  line-height:1.5;
+  text-align:center;
+  text-decoration:none;
+}
+button:hover:not(:disabled), .button-link:hover {background:var(--control-hover)}
+button:disabled {opacity:.55}
+.app-header, .header-actions, .action-row {display:flex;flex-wrap:wrap;align-items:center;gap:.5rem}
+.app-header {justify-content:space-between;gap:1rem}
+.app-header h1 {margin:0;font-size:1.6rem}
+.header-actions {justify-content:flex-end}
+.app-header button, .action-row > button {margin:0}
+.app-header form {margin:0}
+.registration-actions {flex-wrap:nowrap}
+.registration-actions > button {min-width:0;flex:0 1 auto}
+#registration-preview, #registration-result:not(:empty) {margin-top:1rem}
+@media (max-width:700px) {
+  .header-actions {width:100%;justify-content:flex-start}
+}
