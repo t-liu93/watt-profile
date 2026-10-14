@@ -38,6 +38,8 @@ rm -rf -- "$M2_VENV" "$M2_PIP_CACHE"
 
 ## Logger 容器
 
+部署缺陷及恢复方式见受版本管理的[已知问题](docs/known-issues_zh.md)。`v0.1.0-alpha.1` 存在待修的独立预览卡死问题（LOGGER-001）。
+
 Logger 在本地采集 DSMR 5，快照保持 pending；M2 尚未实现上传。开发、测试、ARM64 构建、凭据／设备权限及清理的精确命令见 [M2 容器操作和独立部署设置](docs/milestone/m2_zh.md#容器操作m2-09)。
 
 登录页和 dashboard 默认使用暗色。通过页面顶部按钮切换明暗主题；浏览器存储只保存主题偏好。

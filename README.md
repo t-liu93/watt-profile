@@ -38,6 +38,8 @@ rm -rf -- "$M2_VENV" "$M2_PIP_CACHE"
 
 ## Logger containers
 
+Deployment defects and recovery steps are tracked in [Known issues](docs/known-issues.md). `v0.1.0-alpha.1` has an open standalone-preview lockup issue (LOGGER-001).
+
 The Logger collects DSMR 5 locally and keeps snapshots pending; upload is not implemented in M2. See [M2 container operations and standalone setup](docs/milestone/m2.md#container-operations-m2-09) for exact development, test, ARM64 build, credential/device permission and cleanup commands.
 
 The login page and dashboard default to dark mode. Use the header button to switch between light and dark; only the theme preference is saved in browser storage.
