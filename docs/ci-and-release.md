@@ -2,7 +2,7 @@
 
 > **English — source of truth** · [中文](ci-and-release_zh.md)
 
-This delivery step sits between accepted [M3](milestone/m3.md) and M4. It adds GitHub Actions checks and GHCR delivery for the existing Logger and Server. Logger already stores snapshots and pending state in SQLite; automatic upload remains M4 work. No host, Raspberry Pi, Nginx or production service is deployed or configured by these workflows.
+This delivery step sits between accepted [M3](milestone/m3.md) and [M4](milestone/m4.md). It adds GitHub Actions checks and GHCR delivery for the existing Logger and Server. Logger already stores snapshots and pending state in SQLite; automatic upload remains M4 work. The M4 design is ready; its upload, capacity and recovery CI selectors are planned additions, not current checks. No host, Raspberry Pi, Nginx or production service is deployed or configured by these workflows.
 
 ## Checks and release contract
 

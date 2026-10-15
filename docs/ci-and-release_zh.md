@@ -2,7 +2,7 @@
 
 > [English — source of truth](ci-and-release.md) · **中文**
 
-本交付步骤位于已验收的 [M3](milestone/m3_zh.md) 与 M4 之间，为现有 Logger、Server 增加 GitHub Actions 检查和 GHCR 交付。Logger 已用 SQLite 保存快照和待上传状态；自动上传仍属于 M4。工作流不部署或配置宿主机、树莓派、Nginx 或生产服务。
+本交付步骤位于已验收的 [M3](milestone/m3_zh.md) 与 [M4](milestone/m4_zh.md) 之间，为现有 Logger、Server 增加 GitHub Actions 检查和 GHCR 交付。Logger 已用 SQLite 保存快照和待上传状态；自动上传仍属于 M4。M4 设计已就绪，其上传、容量和恢复 CI selector 均为计划新增，并非当前检查。工作流不部署或配置宿主机、树莓派、Nginx 或生产服务。
 
 ## 检查与发布契约
 

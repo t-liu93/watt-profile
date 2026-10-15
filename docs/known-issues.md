@@ -6,11 +6,11 @@ This tracked register records unresolved defects found during deployment and own
 
 ## LOGGER-001 — Standalone preview can leave the Logger stuck in `previewing`
 
-- **Status:** Open; repair deferred by the owner on 2026-10-14. No fix is included in the primary branch or the published image.
+- **Status:** Open; deferred on 2026-10-14 and now scheduled in [M4-01–M4-02](milestone/m4.md#m4-01--serial-owner-and-preview-cleanup-repair), design ready 2026-10-15. No fix is included in the primary branch or the published image.
 - **Affected release:** `v0.1.0-alpha.1`, Logger image `ghcr.io/t-liu93/watt-profile-logger:0.1.0-alpha.1`.
 - **Observed environment:** Owner-operated Raspberry Pi with a real USB/P1 connection. The standalone diagnostic probe successfully read valid data. No production device or data was accessed by the development agent.
 - **Impact:** Local setup can become unusable after preview: creating sites, creating deployments and other mutation controls remain disabled. This is separate from the expected absence of upload functionality before M4.
-- **Planned repair branch:** `fix/logger-preview-cleanup`, based on `main`. This branch is reserved for a later session; it contains no repair implementation at the time of this record.
+- **Planned repair branch:** `fix/logger-preview-cleanup`, based on `main`. M4 implements and integrates the repair before uploader work; the branch contains no repair implementation at the time of this record.
 
 ### Reproduction and observations
 
@@ -35,7 +35,7 @@ In the device's directory containing `compose.yml` and `.env`, restart only the 
 docker compose --env-file .env -p watt-logger -f compose.yml restart logger
 ```
 
-Refresh the page and log in again. This preserves the named data volume, saved settings, device identity, Token and existing records, while interrupting collection during the restart. Avoid standalone **Read preview** in the affected release. Create/select a site, click **Create paused deployment / switch site**, and start collection when ready. The owner confirmed that creating the test site and paused deployment succeeded after recovery; subsequent sustained collection has not yet been confirmed in this record. Do not remove the data volume as a recovery action.
+Refresh the page and log in again. This preserves the named data volume, saved settings, device identity, Token and existing records, while interrupting collection during the restart. Avoid standalone **Read preview** in the affected release. Create/select a site, click **Create paused deployment / switch site**, and start collection when ready. The owner confirmed site/deployment creation after recovery and subsequently reported ongoing Pi 4 collection during M4 planning, with no server origin and increasing pending records. This is owner-reported pre-M4 operation, not verification of the repair or uploader. Do not remove the data volume as a recovery action.
 
 ### Acceptance criteria for the later repair
 
