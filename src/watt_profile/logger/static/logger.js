@@ -41,7 +41,13 @@
   }
   function controls() {
     const transitioning = status && ["starting", "stopping", "previewing"].includes(status.logger.collection_state);
-    document.querySelectorAll("[data-mutation]").forEach(b => b.disabled = busy || expired || !status || transitioning);
+    const serialFault = status && ["serial_close_failed", "serial_join_failed"].includes(status.runtime_error);
+    document.querySelectorAll("[data-mutation]").forEach(b => b.disabled = busy || expired || !status || transitioning || serialFault);
+    const recovery = $("serial-recovery");
+    recovery.hidden = !serialFault;
+    recovery.textContent = serialFault
+      ? `Serial resource failure (${status.runtime_error}). Serial operations are unavailable because the device may still be owned. Restart the Logger container to recover; this preserves its data volume.`
+      : "";
     if (!status) return;
     const open = status.active_session_state === "open";
     $("start").disabled ||= !open || status.persisted_blocks.length > 0;

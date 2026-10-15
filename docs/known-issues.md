@@ -6,11 +6,11 @@ This tracked register records unresolved defects found during deployment and own
 
 ## LOGGER-001 — Standalone preview can leave the Logger stuck in `previewing`
 
-- **Status:** Open; deferred on 2026-10-14 and now scheduled in [M4-01–M4-02](milestone/m4.md#m4-01--serial-owner-and-preview-cleanup-repair), design ready 2026-10-15. No fix is included in the primary branch or the published image.
+- **Status:** Code-verified on 2026-10-15 in [M4-01–M4-02](milestone/m4.md#task-execution-evidence); integrated into `main` before uploader work. Owner hardware verification and a separately authorized new release remain pending. The published `v0.1.0-alpha.1` image is unchanged and still affected.
 - **Affected release:** `v0.1.0-alpha.1`, Logger image `ghcr.io/t-liu93/watt-profile-logger:0.1.0-alpha.1`.
 - **Observed environment:** Owner-operated Raspberry Pi with a real USB/P1 connection. The standalone diagnostic probe successfully read valid data. No production device or data was accessed by the development agent.
 - **Impact:** Local setup can become unusable after preview: creating sites, creating deployments and other mutation controls remain disabled. This is separate from the expected absence of upload functionality before M4.
-- **Planned repair branch:** `fix/logger-preview-cleanup`, based on `main`. M4 implements and integrates the repair before uploader work; the branch contains no repair implementation at the time of this record.
+- **Repair branch:** `fix/logger-preview-cleanup`, based on `main`; M4-01–M4-02 implement the repair and integrate it before uploader work.
 
 ### Reproduction and observations
 
@@ -45,3 +45,7 @@ Refresh the page and log in again. This preserves the named data volume, saved s
 - Add deterministic fake-serial regression tests for competing shutdown paths and genuine close failure. Add API/browser coverage for repeated preview, status responsiveness, restored controls, site/deployment creation and subsequent collection. Preview must not create stored/pending snapshots.
 - Run the applicable runtime, lifecycle, API, browser and container persistence checks using isolated synthetic resources; clean up only those resources. Arrange real Pi verification separately with the owner.
 - Record verification and release status here. Do not move or overwrite `v0.1.0-alpha.1`; a later repair release needs its own authorization and version.
+
+### Code verification, 2026-10-15
+
+Reader-only close ownership and guaranteed preview teardown are implemented; real close/join failures remain explicit and prevent unsafe reuse. Runtime/lifecycle/probe/maintenance: 120 passed; API/runtime/synthetic: 58 passed; isolated browser: 7 passed; disposable Logger Compose/persistence: 1 passed. Both task diffs passed fresh independent reviews. Only synthetic serial and temporary resources were used, and the disposable project was removed. Owner paused-preview recovery, real driver behavior and a new published image are pending; the existing workaround still applies to the affected release.

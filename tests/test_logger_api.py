@@ -663,6 +663,30 @@ def test_preview_cancel_disconnect_timeout_and_block(setup):
     asyncio.run(check())
 
 
+@pytest.mark.parametrize("fault", ["serial_close_failed", "serial_join_failed"])
+def test_serial_release_faults_have_fixed_api_guidance_and_keep_status_live(setup, fault):
+    async def check():
+        async with client_for(setup) as (app, client):
+            await login(client)
+            csrf = await headers(client)
+            app.state.runtime.runtime_error = fault
+            app.state.runtime._port = object()
+            app.state.runtime._cancel.set()
+            response = await client.post(PREFIX + "/sites", json={}, headers=csrf)
+            assert response.status_code == 409
+            assert response.json()["error"]["code"] == fault
+            message = response.json()["error"]["message"]
+            assert "restart the Logger" in message
+            assert "private" not in message
+            status = await client.get(PREFIX + "/status")
+            assert status.status_code == 200
+            assert status.json()["data"]["runtime_error"] == fault
+            app.state.runtime._port = None
+            app.state.runtime._cancel.clear()
+
+    asyncio.run(check())
+
+
 def test_cli_single_worker_and_no_forwarded_trust(setup, monkeypatch):
     monkeypatch.setattr(cli.LoggerSettings, "from_env", lambda: setup[0])
     calls = []

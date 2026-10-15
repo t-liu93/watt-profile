@@ -5,7 +5,7 @@
 <body><header><h1>Watt Profile Logger</h1><div class="header-actions"><button id="theme-toggle" type="button">Light mode</button><form id="logout" method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button>Log out</button></form></div></header>
 <p id="synthetic" class="banner" hidden>Synthetic input — development only</p>
 <p class="banner">Upload not implemented in M2; records remain pending</p>
-<p id="message" role="status" aria-live="polite"></p><p id="error" role="alert" hidden></p><a id="login-link" href="/login" hidden>Log in again</a>
+<p id="message" role="status" aria-live="polite"></p><p id="error" role="alert" hidden></p><p id="serial-recovery" class="banner" role="alert" hidden></p><a id="login-link" href="/login" hidden>Log in again</a>
 <nav aria-label="Dashboard sections"><button data-section="collection">Collection</button><button data-section="settings">Site and settings</button><button data-section="reading">Reading preview</button><button data-section="registration">Registration</button><button data-section="maintenance">Maintenance</button></nav>
 <main>
 <section id="collection"><h2>Collection and status</h2><dl id="status"></dl><p>If collection reports a serial or storage error, check the connection or free space, then reload status before retrying. Busy or stale commands require reloading the current selection.</p>

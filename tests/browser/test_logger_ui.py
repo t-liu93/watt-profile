@@ -185,6 +185,10 @@ def test_offline_keyboard_preview_lifecycle_and_privacy(browser_app):
     expect(page.locator("#metrics")).to_contain_text("Unavailable")
     expect(page.locator("#metrics")).to_contain_text("kWh")
     assert app.state.repository.get_status().pending_count == 0
+    for _ in range(2):
+        page.get_by_role("button", name="Read preview", exact=True).click()
+        expect(page.locator("#reading-kind")).to_have_text("Read preview (not stored)")
+        assert app.state.repository.get_status().pending_count == 0
     saved_setup(page)
     section(page, "Collection")
     session = current_session(page)
@@ -229,6 +233,23 @@ def test_offline_keyboard_preview_lifecycle_and_privacy(browser_app):
     section(page, "Maintenance")
     expect(page.locator("#sessions tr")).to_have_count(1)
     expect(page.locator("#sessions input")).to_be_disabled()
+
+
+@pytest.mark.parametrize("fault", ["serial_close_failed", "serial_join_failed"])
+def test_latched_serial_fault_explains_recovery_and_disables_mutations(browser_app, fault):
+    page, origin, app, _ = browser_app
+    login(page, origin)
+    app.state.runtime.runtime_error = fault
+    page.get_by_role("button", name="Reload status").click()
+    expect(page.locator("#serial-recovery")).to_be_visible()
+    expect(page.locator("#serial-recovery")).to_contain_text(fault)
+    expect(page.locator("#serial-recovery")).to_contain_text("Restart the Logger container")
+    section(page, "Reading preview")
+    expect(page.get_by_role("button", name="Read preview", exact=True)).to_be_disabled()
+    section(page, "Site and settings")
+    expect(page.get_by_role("button", name="Create / import site")).to_be_disabled()
+    section(page, "Collection")
+    expect(page.get_by_role("button", name="Reload status")).to_be_enabled()
 
 
 def test_optional_preview_switch_current_freshness_errors_and_expiry(browser_app):

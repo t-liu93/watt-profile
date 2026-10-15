@@ -131,6 +131,14 @@ def error(code, status):
         "rate_limited": "Too many login attempts. Try again later.",
         "storage_error": "Storage operation failed.",
         "unavailable": "Service unavailable.",
+        "serial_close_failed": (
+            "The serial device could not be released. Serial operations are unavailable; "
+            "restart the Logger to recover."
+        ),
+        "serial_join_failed": (
+            "The serial reader could not be stopped. Serial operations are unavailable; "
+            "restart the Logger to recover."
+        ),
     }
     return JSONResponse(
         {"error": {"code": code, "message": messages.get(code, "Command cannot be completed.")}},
@@ -308,6 +316,7 @@ def create_app(settings: LoggerSettings, *, serial_factory=None, clock=None, aut
             "invalid_state",
             "rejected",
             "serial_close_failed",
+            "serial_join_failed",
             "preview_cancelled",
         }
         unavailable = {
