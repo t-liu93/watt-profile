@@ -80,3 +80,26 @@ docker compose -p "$logger_project" -f docker-compose.dev.yml \
     up --build -d --wait --wait-timeout 120 logger
 "$python_bin" -m pytest tests/integration/test_logger_compose.py -q \
     -o cache_dir="$ci_root/pytest-cache" --basetemp="$ci_root/logger-compose"
+
+# M4 automatic Logger-to-Server delivery and self-owned combined project acceptance.
+"$python_bin" -m pytest tests/test_m4_pipeline.py -q -o cache_dir="$ci_root/pytest-cache" \
+    --basetemp="$ci_root/m4-pipeline"
+export WATT_TEST_M4_COMPOSE=1
+export WATT_TEST_COMPOSE_PROJECT="watt-m4-ci-$nonce"
+export WATT_DEV_IMAGE_TAG="$WATT_TEST_COMPOSE_PROJECT"
+read -r WATT_DEV_PORT WATT_DEV_SERVER_PORT < <("$python_bin" -c '
+import socket
+sockets = []
+ports = []
+for _ in range(2):
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    sockets.append(sock)
+    ports.append(sock.getsockname()[1])
+print(*ports)
+for sock in sockets:
+    sock.close()
+')
+export WATT_DEV_PORT WATT_DEV_SERVER_PORT
+"$python_bin" -m pytest tests/integration/test_m4_compose.py -q \
+    -o cache_dir="$ci_root/pytest-cache" --basetemp="$ci_root/m4-compose"

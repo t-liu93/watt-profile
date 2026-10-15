@@ -2,7 +2,7 @@
 
 > [English — source of truth](m4.md) · **中文**
 
-状态：实施中，2026-10-15。M1–M3 已验收。M4-01–M4-07 已通过自动检查与独立评审；M4-08–M4-10 仍为计划任务。LOGGER-001 代码已验证，实机和发布仍待完成。业主报告现有 ARM64 Raspberry Pi 4 持续离线采集、积累待上传记录，尚未配置服务器 origin；代理未检查设备或其数据。
+状态：实施中，2026-10-15。M1–M3 已验收。M4-01–M4-08 已通过自动检查与独立评审；M4-09–M4-10 仍为计划任务。LOGGER-001 代码已验证，实机和发布仍待完成。业主报告现有 ARM64 Raspberry Pi 4 持续离线采集、积累待上传记录，尚未配置服务器 origin；代理未检查设备或其数据。
 
 ## 1. 目标与 Agent 使用方式
 
@@ -291,10 +291,10 @@ M4-09–10 在交给所有者前须用可丢弃安装验证精确命令。遵守
 
 | 必需结果 | 当前证据 |
 | --- | --- |
-| M4 设计及双语契约／任务卡 | 设计就绪；2026-10-15 已完成 M4-01–M4-05 自动验收 |
+| M4 设计及双语契约／任务卡 | 设计就绪；2026-10-15 已完成 M4-01–M4-08 自动验收 |
 | LOGGER-001 runtime／API／浏览器／容器修复 | M4-01–02 代码检查与独立评审通过；实机／发布待完成 |
-| 自动上传器、组隔离及精确确认 | 传输／调度器／应用／API／UI 检查和独立评审通过；端到端／容器集成待完成 |
-| 端到端 HTTP／Compose 恢复、查询／CSV 和完整 CI | 待执行 |
+| 自动上传器、组隔离及精确确认 | 传输／调度器／应用／API／UI 及真实 HTTP／容器检查和独立评审通过 |
+| 端到端 HTTP／Compose 恢复、查询／CSV 和完整 CI | M4-08 选择器及独立评审通过；完整 CI 在 M4-09 后执行 |
 | 四周合成容量及所有者足够的存储分配 | 待执行 |
 | 升级／备份／恢复及 AMD64／ARM64 镜像检查 | 待执行 |
 | 所有者集成浏览器走查 | 待执行 |
@@ -318,3 +318,22 @@ M4-09–10 在交给所有者前须用可丢弃安装验证精确命令。遵守
 - **M4-06 — 自动验收，2026-10-15：** lifespan 已拥有上传任务/HTTP 资源，已接入 typed `StatusView.upload`、会话组错误、持久确认 checkpoint、受认证/CSRF 保护的 `202 {data: StatusView}` Retry 及配置提交后唤醒；M1 `LoggerStatus` 未改变。API/uploader/M2 pipeline **67 passed**，Ruff lint/format、diff check 通过。全新独立评审通过，额外两项隔离探针验证意外取消不停止健康采集、致命存储停止并释放串口。覆盖首次 origin 的 completed backlog 自动确认、网络等待状态响应、pending-origin 拒绝、worker readiness 及关闭/构造/HTTP close 异常清理。仅假传输/串口与临时 SQLite；浏览器/容器留待后续。
 
 - **M4-07 — 自动验收，2026-10-15：** 页面已显示真实上传模式／状态／退避／错误、组错误和持久确认时间；独立 Retry、origin 拒绝后保留输入及新版维护说明已实现。最终 browser/API/package **49 passed**，Ruff lint/format、diff check 通过，全新独立复评通过。一轮修复解决维护自动刷新丢键盘焦点及在途分页导航丢失；新增确定性延迟浏览器回归。仅隔离 Chromium、假传输／串口和临时 SQLite；真实 Server／容器集成在 M4-08。
+
+- **M4-08 — 自动验收，2026-10-15：** 实现真实 HTTP/PG 投递、提交后响应丢失、身份/checkpoint 持久化，以及完整 Compose 断网、in-flight 强杀、授权恢复和 A→B→A 隔离。管线 **1 passed**；完整 Compose **1 passed，122.54 秒**；既有 Logger-only **1 passed**、Server Compose **4 passed**、recovery **1 passed**、Logger/Server 浏览器 **11/10 passed**、CI 资源保护 **3 passed**。Ruff lint/format、shell 语法及 diff check 通过。全新独立评审通过，另跑管线 **1**、完整 Compose **1（122.21 秒）** 和 browser/transport/bootstrap **41**。所有一次性项目及精确应用标签均清理并核对为空。完整 CI／容量及架构检查在 M4-09–10 执行；未改动实机或已发布镜像。
+
+### 隔离集成故障驱动
+
+HTTP 与 Compose 选择器本身就是测试拥有的故障驱动，不接管已有走查或生产项目。激活锁定的 Python 环境后，从仓库根目录执行：
+
+```sh
+M4_CHECK_ROOT=$(mktemp -d /tmp/watt-m4-check.XXXXXXXX)
+M4_CHECK_PROJECT="watt-m4-check-$(date +%s)-${RANDOM}"
+env -u WATT_SERVER_DATABASE_URL -u WATT_SERVER_DATABASE_URL_FILE WATT_TEST_POSTGRES=1 \
+  python -m pytest tests/test_m4_pipeline.py -q --basetemp="$M4_CHECK_ROOT/http"
+WATT_TEST_M4_COMPOSE=1 WATT_TEST_COMPOSE_PROJECT="$M4_CHECK_PROJECT" \
+  WATT_DEV_IMAGE_TAG="$M4_CHECK_PROJECT" WATT_DEV_PORT=18580 WATT_DEV_SERVER_PORT=18581 \
+  python -m pytest tests/integration/test_m4_compose.py -q --basetemp="$M4_CHECK_ROOT/compose"
+rm -rf -- "$M4_CHECK_ROOT"
+```
+
+使用空闲 loopback 端口；Compose fixture 在创建任何资源前拒绝占用端口、已有项目资源（含停止容器）或精确应用标签。HTTP 驱动在 Server 提交后截断一次成功响应。Compose 驱动暂停自己的 Server，观察持续采样和在途请求，强制终止／重建自己的 Logger，再恢复连通／授权，并核对身份、积压、CSV 和清理保护。其 `finally` 删除自己的项目卷／网络／容器和精确应用标签，并断言已不存在。基础镜像及无关项目不在清理范围。驱动失败就是失败证据；解决后才用新项目和新 basetemp 子路径复验。

@@ -31,7 +31,7 @@ P = "/api/admin/v1"
 
 @pytest.fixture
 def server_browser(browser_app, server_engine, server_settings):
-    logger_page, logger_origin, _, _ = browser_app
+    logger_page, logger_origin, _, _, _ = browser_app
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
     origin = f"http://127.0.0.1:{listener.getsockname()[1]}"

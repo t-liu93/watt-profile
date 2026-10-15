@@ -25,6 +25,7 @@ from watt_profile.logger.app import create_app as logger_app
 from watt_profile.logger.deployment import DeploymentCommand
 from watt_profile.logger.settings import LoggerSettings
 from watt_profile.logger.storage.repository import LocalSettings
+from watt_profile.logger.upload import TransportResult
 from watt_profile.server.app import create_app as server_app
 from watt_profile.server.export import CSV_COLUMNS
 from watt_profile.server.storage.repository import ServerRepository
@@ -73,6 +74,16 @@ def login(client, *, logger=False):
     }
 
 
+class ManualDeliveryTransport:
+    """Keep the M3 manual-ingest fixture independent of automatic upload."""
+
+    async def send(self, saved_origin, token, group):
+        return TransportResult(0, error_code="upload_network_error")
+
+    async def aclose(self):
+        pass
+
+
 def test_normal_logger_records_manual_http_ingest_query_csv_and_pending(
     server_engine, server_settings, tmp_path
 ):
@@ -93,7 +104,14 @@ def test_normal_logger_records_manual_http_ingest_query_csv_and_pending(
             central,
             origin,
         ),
-        loopback(lambda _: logger_app(settings, clock=clock, serial_factory=factory)) as (
+        loopback(
+            lambda _: logger_app(
+                settings,
+                clock=clock,
+                serial_factory=factory,
+                upload_transport_factory=lambda _: ManualDeliveryTransport(),
+            )
+        ) as (
             local_app,
             local,
             _,
@@ -101,7 +119,7 @@ def test_normal_logger_records_manual_http_ingest_query_csv_and_pending(
     ):
         headers, local_headers = login(central), login(local, logger=True)
         runtime, repo = local_app.state.runtime, local_app.state.repository
-        # A configured reachable server still does not activate an M4 uploader.
+        # Manual delivery remains the subject of this fixture; M4 transport is injected.
         repo.save_settings(LocalSettings(server_url=origin, serial_path="/fake"))
         site = runtime.create_site(address="Synthetic pipeline\nA", description="Manual delivery")
         runtime.switch_site(DeploymentCommand(site_id=site.site_id, expected_session_id=None))

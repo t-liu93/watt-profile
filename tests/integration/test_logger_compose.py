@@ -131,11 +131,7 @@ def test_complete_offline_compose_browser_walkthrough(compose):
                 page.get_by_role("button", name="Log in", exact=True).click()
                 expect(page.get_by_role("heading", name="Watt Profile Logger")).to_be_visible()
                 expect(page.locator("#synthetic")).to_be_visible()
-                expect(
-                    page.get_by_text(
-                        "Upload not implemented in M2; records remain pending", exact=True
-                    )
-                ).to_be_visible()
+                expect(page.locator("#upload-banner")).to_contain_text("unconfigured")
 
             def section(name):
                 page.get_by_role("button", name=name, exact=True).click()
@@ -213,7 +209,7 @@ def test_complete_offline_compose_browser_walkthrough(compose):
             before = status()
             assert before["logger"]["pending_count"] >= 2
             assert before["active_session_latest_received_at"]
-            assert before["upload_mode"] == "not_implemented"
+            assert before["upload_mode"] == "unconfigured"
             assert before["logger"]["last_successful_upload_at"] is None
             token = reveal()
             command("Pause")
