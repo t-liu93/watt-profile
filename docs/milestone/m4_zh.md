@@ -2,7 +2,7 @@
 
 > [English — source of truth](m4.md) · **中文**
 
-状态：实施中，2026-10-15。M1–M3 已验收。M4-01–M4-09 已通过自动检查与独立评审；M4-10 仍为计划任务。LOGGER-001 代码已验证，实机和发布仍待完成。业主报告现有 ARM64 Raspberry Pi 4 持续离线采集、积累待上传记录，尚未配置服务器 origin；代理未检查设备或其数据。
+状态：软件实现与验证完成，所有者验收待完成，2026-10-15。M1–M3 已验收。M4-01–M4-10 已通过自动检查与独立评审。M4 整体仍须等待所有者浏览器、存储配额及 Pi 4 实物／72 小时证据通过。LOGGER-001 代码已验证，实机和发布仍待完成。业主报告现有 ARM64 Raspberry Pi 4 持续离线采集、积累待上传记录，尚未配置服务器 origin；代理未检查设备或其数据。
 
 ## 1. 目标与 Agent 使用方式
 
@@ -231,59 +231,90 @@ python -m ruff format --check .
 git diff --check
 env -u WATT_SERVER_DATABASE_URL -u WATT_SERVER_DATABASE_URL_FILE WATT_TEST_POSTGRES=1 python -m pytest -q
 env -u WATT_SERVER_DATABASE_URL -u WATT_SERVER_DATABASE_URL_FILE WATT_TEST_POSTGRES=1 python -m pytest tests/browser tests/test_m4_pipeline.py -q
-# 每个集成调用使用不同的新 project／tag／私有根目录。
+# Each integration invocation uses a distinct new project/tag/private root.
 WATT_TEST_M4_COMPOSE=1 WATT_TEST_COMPOSE_PROJECT=NEW_WATT_M4_PROJECT WATT_DEV_IMAGE_TAG=NEW_WATT_M4_PROJECT python -m pytest tests/integration/test_m4_compose.py -q
 WATT_TEST_M4_CAPACITY=1 python -m pytest tests/integration/test_logger_capacity.py -q
 ```
 
 新 Compose fixture 在创建前验证 `watt-m4-...` 名称、空闲回环端口，以及所有项目容器（含已停止）、网络、卷和精确应用 tag 均不存在。fixture 负责启停并在最后断言资源消失。容量仅创建新的私有临时根目录。CI 显式执行两者及既有 Server 恢复、Logger／Server 独立部署回归，仅清理本次资源。实现时记录真实耗时、版本、构建／运行架构及 opt-in 结果，此处不预填成功。
 
-### 计划联合开发走查
+### 计划的组合开发走查
 
-M4-08 后，使用新的可丢弃项目和纯合成输入。这些是计划集成验收命令，不针对已有项目运行。
+这是一次使用开发环境生成的合成读数和凭据的双页面隔离验收，不代表所有者浏览器或 Pi 验收。选择新的 project 名称、私有输出目录及空闲回环端口。以下预检如发现项目容器（包括已停止）、网络、卷、精确应用 tag 已存在或端口被占用，就会失败；此时保留全部现有资源，换用新名称／端口。请在仓库根目录运行：
 
 ```sh
+set -euo pipefail
 M4_PROJECT="watt-m4-owner-$(date +%s)-${RANDOM}"
-export WATT_DEV_IMAGE_TAG="$M4_PROJECT"
-export WATT_DEV_PORT=8080 WATT_DEV_SERVER_PORT=18081
-docker container ls --all --filter "label=com.docker.compose.project=$M4_PROJECT"
-docker network ls --filter "label=com.docker.compose.project=$M4_PROJECT"
-docker volume ls --filter "label=com.docker.compose.project=$M4_PROJECT"
-# 还须拒绝已有精确 Logger／Server image tag 和被占用端口。
+M4_LOGGER_PORT=18880 M4_SERVER_PORT=18881
+export WATT_DEV_IMAGE_TAG="$M4_PROJECT" WATT_DEV_PORT="$M4_LOGGER_PORT" WATT_DEV_SERVER_PORT="$M4_SERVER_PORT"
+test -z "$(docker container ls -aq --filter "label=com.docker.compose.project=$M4_PROJECT")"
+test -z "$(docker network ls -q --filter "label=com.docker.compose.project=$M4_PROJECT")"
+test -z "$(docker volume ls -q --filter "label=com.docker.compose.project=$M4_PROJECT")"
+if docker image inspect "watt-profile-logger-dev:$M4_PROJECT" >/dev/null 2>&1; then echo "Refusing existing Logger image tag" >&2; exit 1; fi
+if docker image inspect "watt-profile-server-dev:$M4_PROJECT" >/dev/null 2>&1; then echo "Refusing existing Server image tag" >&2; exit 1; fi
+python3 -c 'import socket,sys; ports=list(map(int,sys.argv[1:])); sockets=[]
+try:
+ for port in ports:
+  s=socket.socket(); s.bind(("127.0.0.1",port)); sockets.append(s)
+finally:
+ [s.close() for s in sockets]' "$M4_LOGGER_PORT" "$M4_SERVER_PORT"
 docker compose -p "$M4_PROJECT" -f docker-compose.dev.yml config --quiet
+M4_PRIVATE_ROOT=$(mktemp -d /tmp/watt-m4-owner.XXXXXXXX)
 docker compose -p "$M4_PROJECT" -f docker-compose.dev.yml up --build -d --wait --wait-timeout 120 logger server
 docker compose -p "$M4_PROJECT" -f docker-compose.dev.yml ps --all
 ```
 
-任何预检资源／端口已存在时，改用另一项目／空闲端口，不接管或删除原资源。打开 Logger `http://127.0.0.1:8080`，账号 `operator`／`testtesttesttest`；Server `http://127.0.0.1:18081`，账号 `admin`／`testtesttesttest`；均只用于开发。自定义端口同时改变两个 URL 及渲染的开发路由。
+打开 Logger `http://127.0.0.1:18880` 和 Server `http://127.0.0.1:18881`。使用仅限开发环境的 `operator` 和 `admin` 账号，密码均为 `testtesttesttest`；这些页面不是所有者账号。按以下步骤操作并记录观测到的数量／时间，不要将合成数据复制到受版本管理的证据：
 
-1. 尚无现场时重复合成预览，验证控件恢复且 pending 为零。创建合成现场 A 和暂停部署，未配置 origin 就开始采集，观察 pending 和当前会话持久时间推进。
-2. 保留串口／profile 设置，保存浏览器 Server origin。观察未知凭据导致自动上传阻断，采集继续。pending 存在时替换／清空非空 origin 均被拒绝。
-3. 显式展示／复制登记 JSON，在 Server 预览并确认，再点击 Logger Retry upload。验证积压恢复和持久确认时间推进；本项不使用人工 ingest 重放。
-4. 查询 A，检查脱敏指标／缺测／Decimal 小数位／ID，并导出完整筛选 CSV。通过测试工具与合成 Logger 核对数量／内容／归属；分页不得截断 CSV。
-5. 暂停／完成／切换 A→B→A，登记缺少的 grant。确认独立会话／source 及复用现场测量点。B 有 pending 时撤销 A，A 的可见阻断不影响 B。恢复 A 并 Retry 清空积压。
-6. 用测试自建网络／响应丢失 driver 演练断网、提交后响应丢失和在途终止。验证断网继续本地采集、安全重启／去重、ID 一致、凭据不变及积压恢复。应用不暴露故障接口。
-7. 检查清理资格：可删除已完成会话的 uploaded 行；开放会话及全部 pending 保留。重启／重建和正常 down/up 保留数据／检查点／身份。此项目 Server 历史仍可查询。
+1. 在 Logger 尚未创建现场时重复执行读数预览。确认控件恢复且没有预览快照写入；尚未配置 origin 时 pending 保持为零。创建现场 A 和暂停部署，保持 Server origin 为空并开始合成采集，直到至少保存三条快照；观察当前会话保存时间和 pending 数量增加。origin 配置和登记期间继续采集，以验证投递时新读数持续写入。
+2. 在 Logger 设置中保存 Server origin，保留串口／profile 设置。观察 `invalid_credential`，且采集持续进行。尝试替换或清除该 origin，确认 pending-origin 保护拒绝操作，已填设置保留且采集未暂停。
+3. 展示并复制 Logger 登记摘要，在 Server 预览并创建登记、授予现场 A。返回 Logger，点击 Retry，观察 pending 数下降、持久确认时间推进。不要人工重放 ingest 请求。
+4. 待积压清空后暂停采集，直到保存数量稳定。在 Server 查询现场 A，先把分页大小设为 1，逐页浏览结果，再导出完整筛选 CSV。将 CSV 行数和 record ID 集合与筛选 query 和 Logger 会话数量核对，并确认现场／会话归属。无论分页大小如何，导出都须包含全部匹配记录。
+5. 暂停并结束 A，创建 B，再通过现有 UUID 返回 A 并创建新会话。确认记录仍归属其原现场／会话／source。按需登记并授权 B；测试故障检查阻断 A 时，确认可投递的 B 记录仍上传，恢复 A 授权后 Retry。
+6. 按下方隔离 HTTP 和 Compose 故障检查执行断网、提交后响应丢失及 Logger 重建。确认断网期间采集继续、重试去重，并在恢复连接／授权后补传积压。应用不提供故障注入接口。
+7. 检查清理资格：已完成会话中已上传行可以清理；开放会话及所有 pending 记录都保留。重启／重建隔离项目并确认身份、凭据、数据和 checkpoint 持久化。
 
-就绪／日志查看及正常关闭：
+查看就绪状态和日志，然后只删除本次走查创建的资源。保留基础镜像／构建缓存及其他项目：
 
 ```sh
 docker compose -p "$M4_PROJECT" -f docker-compose.dev.yml ps --all
 docker compose -p "$M4_PROJECT" -f docker-compose.dev.yml logs --tail=100 logger server
-docker compose -p "$M4_PROJECT" -f docker-compose.dev.yml down
+docker compose -p "$M4_PROJECT" -f docker-compose.dev.yml down --volumes --remove-orphans
+docker image rm "watt-profile-logger-dev:$M4_PROJECT" "watt-profile-server-dev:$M4_PROJECT"
+rm -rf -- "$M4_PRIVATE_ROOT"
+test -z "$(docker container ls -aq --filter "label=com.docker.compose.project=$M4_PROJECT")"
+test -z "$(docker network ls -q --filter "label=com.docker.compose.project=$M4_PROJECT")"
+test -z "$(docker volume ls -q --filter "label=com.docker.compose.project=$M4_PROJECT")"
+if docker image inspect "watt-profile-logger-dev:$M4_PROJECT" >/dev/null 2>&1; then echo "Logger image tag remains" >&2; exit 1; fi
+if docker image inspect "watt-profile-server-dev:$M4_PROJECT" >/dev/null 2>&1; then echo "Server image tag remains" >&2; exit 1; fi
 ```
 
-最终清理**仅限本次新建可丢弃项目**：执行 `down --volumes --remove-orphans`、移除其精确 Logger／Server 应用 tag 及临时合成输出，再断言所有项目资源消失。保留既有基础镜像／构建缓存。实现阶段在交接前须把精确 driver 命令及私有输出清理步骤写入本文；设计时 driver 尚不存在。
+如果启动或验收步骤失败，保留日志并将证据标为失败；不得标记走查通过。任何重跑都使用新的 project、端口及私有根目录。禁止全局 Docker prune，也不要清理预先存在的资源。
+
+隔离 HTTP、capacity 和 Compose selector 也会管理其临时资源，并拒绝已存在的名称／资源。使用锁定 Python 环境和新的 project／basetemp 路径运行明确的故障检查：
+
+```sh
+M4_CHECK_ROOT=$(mktemp -d /tmp/watt-m4-check.XXXXXXXX)
+M4_CHECK_PROJECT="watt-m4-check-$(date +%s)-${RANDOM}"
+env -u WATT_SERVER_DATABASE_URL -u WATT_SERVER_DATABASE_URL_FILE WATT_TEST_POSTGRES=1 \
+  python -m pytest tests/test_m4_pipeline.py -q --basetemp="$M4_CHECK_ROOT/http"
+WATT_TEST_M4_COMPOSE=1 WATT_TEST_COMPOSE_PROJECT="$M4_CHECK_PROJECT" \
+  WATT_DEV_IMAGE_TAG="$M4_CHECK_PROJECT" WATT_DEV_PORT=18580 WATT_DEV_SERVER_PORT=18581 \
+  python -m pytest tests/integration/test_m4_compose.py -q --basetemp="$M4_CHECK_ROOT/compose"
+rm -rf -- "$M4_CHECK_ROOT"
+```
+
+使用空闲端口；Compose selector 会预检项目资源、已停止容器、精确 tag 和回环端口，仅清理自己的资源并断言其已消失。HTTP selector 管理独立 PostgreSQL。两个 selector 只使用合成数据；失败调用属于失败证据，修复原因后须使用新 project 和 basetemp 重跑。
 
 ### 所有者 Pi 升级与验收交接
 
-M4-09–10 在交给所有者前须用可丢弃安装验证精确命令。遵守既有[备份／恢复契约](m2_zh.md#c5-存储压力清理与备份)和[已发布镜像部署](../ci-and-release_zh.md#树莓派拉取-logger)。沿用现有 Compose project、数据卷、设置、密码和设备映射；修改 project 可能选中空卷，并非升级。
+M4-09–10 在所有者执行前已通过可丢弃安装验证精确命令。以下命令运行前，先将 `WATT_LOGGER_PROJECT` 设置为该现有部署的准确 project 名称。遵守既有[备份／恢复契约](m2_zh.md#c5-存储压力清理与备份)和[已发布镜像部署](../ci-and-release_zh.md#树莓派拉取-logger)。沿用现有 Compose project、数据卷、设置、密码和设备映射；修改 project 可能选中空卷，并非升级。已发布的 `v0.1.0-alpha.1` 保持不变，不含上传器且仍受 LOGGER-001 影响；安装未来 M4 镜像须另行授权发布。
 
-1. 记录当前镜像引用和设备 UUID。旧 Logger 仍运行时，使用下方精确在线备份及 `docker cp` 命令，指定新建宿主目标目录和唯一容器临时路径。重建前确认三个文件及权限正确；仅留在容器 `/tmp` 的副本会在重建时丢失。不打印 Token／备份内容，也不只复制 live SQLite 主文件。
-2. 另行授权发布后，在现有忽略 env 文件里设置新固定 Logger 镜像，然后执行 `docker compose --env-file deploy/logger/.env.local -p watt-logger -f deploy/logger/compose.yml up --no-build --pull always -d --wait --wait-timeout 120 logger`。沿用 project、数据卷、设置、密码文件及设备映射。不删除卷、不重新生成凭据／会话。现有所有者安装无 origin，因此已积累 pending 也允许首次保存。
+1. 记录当前镜像引用和设备 UUID。旧 Logger 仍运行时，使用下方[隔离集成故障 driver](#隔离集成故障驱动)中的精确在线备份及 `docker cp` 命令，指定新建宿主目标目录和唯一容器临时路径。重建前确认三个文件及权限正确；仅留在容器 `/tmp` 的副本会在重建时丢失。不打印 Token／备份内容，也不只复制 live SQLite 主文件。
+2. 另行授权发布后，在现有忽略 env 文件里设置新固定 Logger 镜像，然后执行 `docker compose --env-file deploy/logger/.env.local -p "$WATT_LOGGER_PROJECT" -f deploy/logger/compose.yml up --no-build --pull always -d --wait --wait-timeout 120 logger`。沿用 project、数据卷、设置、密码文件及设备映射。不删除卷、不重新生成凭据／会话。现有所有者安装无 origin，因此已积累 pending 也允许首次保存。
 3. 配置真实 Server 公网 HTTPS origin（或所有者隧道内 HTTP），登记现有设备及所需现场，然后 Retry。观察新旧记录保留原归属、积压下降和真实确认。Agent 检查不连接这些服务。
-4. 安全暂停后验证预览及受控恢复，再执行 C9 的独立连续 72 小时区间。验收记录只保存脱敏结果，私有读数和备份留在本地。
-5. 若新进程未就绪，执行 `docker compose --env-file deploy/logger/.env.local -p watt-logger -f deploy/logger/compose.yml ps --all` 和 `docker compose --env-file deploy/logger/.env.local -p watt-logger -f deploy/logger/compose.yml logs --tail=100 logger`；保留原卷。schema 未变更时，回滚即设置旧固定镜像引用并执行同一 `up --no-build --pull always -d --wait --wait-timeout 120 logger`。记录仍在，但旧版不能上传且仍有 LOGGER-001。先用合成副本验证回滚。不把旧备份覆盖 live 安装当作常规回滚，因为会丢失较新已提交记录。灾难恢复按 M2 写入新／空目录。
+4. 暂停采集并等待 Logger 状态显示串口 owner 已释放。重复执行临时预览；确认预览控件恢复、未写入预览快照、pending 未因预览增加，并且恢复采集后仍是同一开放会话。采集期间不得并行运行 probe 或第二个串口 reader。在连续运行前，分别演练 Logger 重启和 Server／网络中断恢复，确认持久身份与积压恢复。记录 Pi 实际 RAM、与测量需求对照的可用存储配额、OS、镜像版本／digest、不含标识符的电表／profile／线缆描述、内存／CPU／磁盘写入以及运行起止 UTC。然后至少连续运行 72 小时，期间不计划重启或注入故障；记录重启／错误、有效样本缺口、上传积压／新鲜度及最终 query／CSV 检查。本文只保存脱敏结果，私有读数和备份留在本地。
+5. 若新进程未就绪，执行 `docker compose --env-file deploy/logger/.env.local -p "$WATT_LOGGER_PROJECT" -f deploy/logger/compose.yml ps --all` 和 `docker compose --env-file deploy/logger/.env.local -p "$WATT_LOGGER_PROJECT" -f deploy/logger/compose.yml logs --tail=100 logger`；保留原卷。schema 未变更时，回滚即设置旧固定镜像引用并执行同一 `up --no-build --pull always -d --wait --wait-timeout 120 logger`。记录仍在，但旧版不能上传且仍有 LOGGER-001。先用合成副本验证回滚。不把旧备份覆盖 live 安装当作常规回滚，因为会丢失较新已提交记录。灾难恢复按 M2 写入新／空目录。
 
 说明不得包含真实设备 `down --volumes`、全局 Docker prune、生产数据库恢复或上游配置修改。普通升级和实物检查仍由所有者执行。发布版本／digest 和实际命令结果在授权／执行后补入。
 
@@ -291,10 +322,10 @@ M4-09–10 在交给所有者前须用可丢弃安装验证精确命令。遵守
 
 | 必需结果 | 当前证据 |
 | --- | --- |
-| M4 设计及双语契约／任务卡 | 设计就绪；2026-10-15 已完成 M4-01–M4-09 自动验收 |
+| M4 设计及双语契约／任务卡 | 设计就绪；2026-10-15 已完成 M4-01–M4-10 软件自动验收 |
 | LOGGER-001 runtime／API／浏览器／容器修复 | M4-01–02 代码检查与独立评审通过；实机／发布待完成 |
 | 自动上传器、组隔离及精确确认 | 传输／调度器／应用／API／UI 及真实 HTTP／容器检查和独立评审通过 |
-| 端到端 HTTP／Compose 恢复、查询／CSV 和完整 CI | M4-08 选择器及独立评审通过；完整 CI 在 M4-09 后执行 |
+| 端到端 HTTP／Compose 恢复、查询／CSV 和完整 CI | 完整 `bash scripts/ci.sh` 及全部 opt-in、隔离双页面浏览器走查均已通过；所有者浏览器验收仍待完成 |
 | 四周合成容量及所有者足够的存储分配 | 合成检查通过；含预留实测需求 1,374,522,219 字节；所有者配额／适配待验 |
 | 升级／备份／恢复及 AMD64／ARM64 镜像检查 | 软件检查通过；AMD64 原生、ARM64 模拟；ARM64 实机待验 |
 | 所有者集成浏览器走查 | 待执行 |
@@ -322,6 +353,8 @@ M4-09–10 在交给所有者前须用可丢弃安装验证精确命令。遵守
 - **M4-08 — 自动验收，2026-10-15：** 实现真实 HTTP/PG 投递、提交后响应丢失、身份/checkpoint 持久化，以及完整 Compose 断网、in-flight 强杀、授权恢复和 A→B→A 隔离。管线 **1 passed**；完整 Compose **1 passed，122.54 秒**；既有 Logger-only **1 passed**、Server Compose **4 passed**、recovery **1 passed**、Logger/Server 浏览器 **11/10 passed**、CI 资源保护 **3 passed**。Ruff lint/format、shell 语法及 diff check 通过。全新独立评审通过，另跑管线 **1**、完整 Compose **1（122.21 秒）** 和 browser/transport/bootstrap **41**。所有一次性项目及精确应用标签均清理并核对为空。完整 CI／容量及架构检查在 M4-09–10 执行；未改动实机或已发布镜像。
 
 - **M4-09 — 自动验收，2026-10-15：** 实现仅合成数据的容量 CLI、CI 显式全量容量选择器、旧安装 lifespan／确认／并发备份、备份复制出容器／重建／恢复检查、安装镜像覆盖及双语操作说明。全量容量 **1 passed，127.65 秒**；维护 **60**、真实 HTTP／旧安装管线 **3**、wheel **1**；Logger Compose **1（116.18 秒）**。四种架构镜像构建及禁网 smoke 通过（AMD64 原生、ARM64 QEMU），真实旧镜像→M4→旧镜像保留验证通过。最终独立评审通过：容量 **1（127.85 秒）**、维护／管线／wheel **64**；Ruff／format／shell／diff 检查通过。两轮修复解决中文可执行命令遗漏，以及近上限估算遗漏持久化投影的问题。最终代表性需求 **1,374,522,219 字节**；500 条真实 SQLite 近上限样本给出独立标注的 **8,048,124,887 字节**估算。所有者配额／适配、原生 ARM64 及 72 小时验收待完成。详细测量见下文；未改生产数据或发布版本。
+
+- **M4-10 — 自动验收与所有者交接，2026-10-15：** 十项软件任务均已通过检查和独立评审。`bash scripts/ci.sh` 于 2026-10-15 退出码为 0。Ruff lint 通过；Ruff format 显示 121 个文件格式正确。默认 pytest：**681 passed、29 skipped，80.16 秒**；显式 browser：**21 passed，76.38 秒**；Server Compose：**4 passed，77.11 秒**；Server recovery：**1 passed，19.35 秒**；Logger Compose：**1 passed，116.39 秒**；M4 HTTP pipeline：**3 passed，23.84 秒**；M4 组合 Compose：**1 passed，128.66 秒**；全量 capacity selector：**1 passed，122.76 秒**。所有 opt-in 均已运行。计数存在重叠，因为默认 selector 也包含 pipeline 检查；不得相加为唯一测试总数。另有一条既有 Starlette/httpx 弃用警告。CI 清理 trap 已核对无本次容器、网络、卷或精确 Logger 镜像标签遗留，并删除私有临时子目录。隔离双页面 Chromium 走查已在一次性 project `watt-m4-owner-1792089112-30730` 通过，Logger／Server 端口为 18890／18891。验证了三条离线 pending、页面登记并 Retry、分页大小为 1 时四行 CSV 及精确 record ID／内容匹配（18 项指标、缺测、fields 和 quality）、A→B→A 复用 measurement point 且保持三个独立 session/source、清理已完成且已上传的 Logger 记录而 Server 历史仍保留，以及 Logger 重建后暂停的开放会话身份、数据和 checkpoint 均保留。最终项目清理以退出码 0 完成：核对确认全部容器（含已停止及 init）、网络、卷和两个精确应用镜像 tag 均不存在；私有临时根目录已删除。此前失败的 driver 项目也在重新走查前清理并确认无残留。隔离 builder 和架构镜像 tag 均已移除；原默认 builder 未改变。全新 M4-10 独立评审通过，核对了双语 shell 语法／等价性、本地链接及 CI／故障驱动覆盖；本次文档评审未重复完整软件测试。所有者浏览器验收、Pi 存储配额、原生 ARM64／实物适配及连续 72 小时运行仍待完成。尚未宣称 M4 验收或发布。
 
 ### 容量与镜像验证
 
@@ -383,7 +416,7 @@ CLI 会创建全新私有合成安装和 `capacity.json`，不接受 live 路径
 Logger Compose 验收会测试完整在线备份、复制到宿主机、容器重建后复制回来，并仅恢复到空的临时目标。所有者安装使用同样流程：为宿主备份新建 0700 私有目录，并选唯一容器临时路径。沿用现有运行 project、env、卷及 Logger：
 
 ```sh
-WATT_LOGGER_PROJECT=watt-logger # 设置为现有项目的准确名称
+WATT_LOGGER_PROJECT="SET_TO_EXISTING_PROJECT" # replace with the exact existing project name
 OLD_PINNED_IMAGE=ghcr.io/OWNER/IMAGE@sha256:OLD_DIGEST
 NEW_PINNED_IMAGE=ghcr.io/OWNER/IMAGE@sha256:NEW_DIGEST
 WATT_LOGGER_BACKUP_DIR=/absolute/private/new/backup-directory

@@ -6,9 +6,9 @@ Watt Profile P1 协议和数据契约的独立 Python 包。
 
 ## CI 与发布镜像
 
-每次 push 执行合成数据 CI，其中包括显式运行的四周容量 selector。版本 tag 在检查和原生镜像测试通过后，将独立的 Logger、Server AMD64/ARM64 镜像发布到 GHCR。参阅 [CI、发布标签与树莓派拉取说明](docs/ci-and-release_zh.md)。M4 源码正在实现上传和积压恢复；已发布的 `v0.1.0-alpha.1` 镜像仍为 M4 前版本。
+每次 push 执行合成数据 CI，其中包括显式运行的四周容量 selector。版本 tag 在检查和原生镜像测试通过后，将独立的 Logger、Server AMD64/ARM64 镜像发布到 GHCR。参阅 [CI、发布标签与树莓派拉取说明](docs/ci-and-release_zh.md)。M4 源码已实现上传和积压恢复；已发布的 `v0.1.0-alpha.1` 镜像仍为 M4 前版本。
 
-[M4 设计及所有者操作交接](docs/milestone/m4_zh.md)记录十个顺序任务，涵盖 LOGGER-001 修复、可靠上传／补传、四周容量、集成验证及所有者 ARM64 Pi 4 连续 72 小时验收。M4 实现和验收仍在进行；发布和实物验收分别处理。修订硬件边界见 [MVP 路线图](docs/mvp-roadmap_zh.md)。
+[M4 设计及所有者操作交接](docs/milestone/m4_zh.md)记录十个顺序任务，涵盖 LOGGER-001 修复、可靠上传／补传、四周容量、集成验证及所有者 ARM64 Pi 4 连续 72 小时验收。M4-01–M4-10 软件实现、检查和独立评审已完成。完整 CI 和隔离浏览器走查通过；所有者浏览器验收、存储配额及 Pi 4 实物／72 小时验收仍待完成。尚未授权发布 M4。修订硬件边界见 [MVP 路线图](docs/mvp-roadmap_zh.md)。
 
 ## 开发环境
 
@@ -42,7 +42,7 @@ rm -rf -- "$M2_VENV" "$M2_PIP_CACHE"
 
 部署缺陷及恢复方式见受版本管理的[已知问题](docs/known-issues_zh.md)。`v0.1.0-alpha.1` 存在待修的独立预览卡死问题（LOGGER-001）。
 
-Logger 在本地采集 DSMR 5，快照保持 pending；M2 尚未实现上传。开发、测试、ARM64 构建、凭据／设备权限及清理的精确命令见 [M2 容器操作和独立部署设置](docs/milestone/m2_zh.md#容器操作m2-09)。
+Logger 本地采集 DSMR 5，并在上传前持久化快照。配置 origin 后，M4 源码支持自动上传和积压恢复；已发布的 alpha.1 镜像仍为 M4 前版本。开发、测试、ARM64 构建、凭据／设备权限及清理的精确命令见 [M2 容器操作和独立部署设置](docs/milestone/m2_zh.md#容器操作m2-09)；合成数据配置到 CSV 的验收见 [M4 集成走查](docs/milestone/m4_zh.md#计划的组合开发走查)。
 
 登录页和 dashboard 默认使用暗色。通过页面顶部按钮切换明暗主题；浏览器存储只保存主题偏好。
 
@@ -52,7 +52,7 @@ Logger 在本地采集 DSMR 5，快照保持 pending；M2 尚未实现上传。�
 
 ## Server 容器
 
-Server 已实现管理员注册、授权批量接收、读数和 CSV 导出；Logger 上传仍属于 M4。独立 [Compose](deploy/server/compose.yml) 仅包含应用和 PostgreSQL，只发布一个 HTTP 应用端口，默认将 `127.0.0.1:18081` 映射到容器 8080；PostgreSQL 不发布宿主端口。所有者的宿主机／上游 Nginx 独立管理 HTTPS、证书和反代。外部 origin/HTTP 验证及修订自动回归已通过；所有者于 2026-10-14 验收 [M3](docs/milestone/m3_zh.md)，并确认走查资源已清理。
+Server 已实现管理员注册、授权批量接收、读数和 CSV 导出；当前 M4 Logger 源码会自动上传已确认批次。独立 [Compose](deploy/server/compose.yml) 仅包含应用和 PostgreSQL，只发布一个 HTTP 应用端口，默认将 `127.0.0.1:18081` 映射到容器 8080；PostgreSQL 不发布宿主端口。所有者的宿主机／上游 Nginx 独立管理 HTTPS、证书和反代。外部 origin/HTTP 验证及修订自动回归已通过；所有者于 2026-10-14 验收 [M3](docs/milestone/m3_zh.md)，并确认走查资源已清理。
 
 将[脱敏示例](deploy/server/.env.example)复制到被忽略的 `deploy/server/.env.local` 并替换所有占位符。将 `WATT_SERVER_PUBLIC_ORIGIN` 设为外部浏览器源（经 Nginx 使用 HTTPS），HTTPS 保持 `WATT_SERVER_COOKIE_SECURE=true`；若上游需要可达接口或其他端口，选择 `WATT_SERVER_BIND_ADDRESS`／`WATT_SERVER_PUBLISHED_PORT`。提供私有 DB／应用凭据目录（0700）及文件（0600）；应用文件归 UID/GID 10001 所有并只读挂载。DB 目录包含 `password`；应用目录包含 `database-url` 和 `admin-password`，DB 凭据必须一致且不提供开发默认值。启动前阅读[操作说明](docs/milestone/m3_zh.md#m3-11-部署操作)：
 

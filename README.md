@@ -6,9 +6,9 @@ Independent Python package for the Watt Profile P1 protocol and contracts.
 
 ## CI and published images
 
-Every push runs the synthetic CI suite, including the explicit four-week capacity selector. Version tags release separate Logger and Server images to GHCR for AMD64 and ARM64, after checks and native image tests pass. See [CI, release tags and Raspberry Pi pull instructions](docs/ci-and-release.md). The in-progress M4 source implements upload and backlog recovery; the published `v0.1.0-alpha.1` image remains pre-M4.
+Every push runs the synthetic CI suite, including the explicit four-week capacity selector. Version tags release separate Logger and Server images to GHCR for AMD64 and ARM64, after checks and native image tests pass. See [CI, release tags and Raspberry Pi pull instructions](docs/ci-and-release.md). Current M4 source implements upload and backlog recovery; the published `v0.1.0-alpha.1` image remains pre-M4.
 
-The [M4 design and owner operations handoff](docs/milestone/m4.md) tracks ten ordered tasks for LOGGER-001 repair, reliable upload/backlog recovery, four-week capacity, integrated verification and the owner's ARM64 Pi 4 continuous 72-hour acceptance. M4 implementation and acceptance are in progress; release and physical acceptance remain separate. See the [MVP roadmap](docs/mvp-roadmap.md) for the hardware boundary.
+The [M4 design and owner operations handoff](docs/milestone/m4.md) tracks ten ordered tasks for LOGGER-001 repair, reliable upload/backlog recovery, four-week capacity, integrated verification and the owner's ARM64 Pi 4 continuous 72-hour acceptance. M4-01–M4-10 software implementation, checks and independent reviews are complete. Full CI and the isolated browser walkthrough passed; owner browser acceptance, storage allocation and physical Pi 4/72-hour acceptance remain pending. No M4 release is authorized. See the [MVP roadmap](docs/mvp-roadmap.md) for the hardware boundary.
 
 ## Development environment
 
@@ -42,7 +42,7 @@ rm -rf -- "$M2_VENV" "$M2_PIP_CACHE"
 
 Deployment defects and recovery steps are tracked in [Known issues](docs/known-issues.md). `v0.1.0-alpha.1` has an open standalone-preview lockup issue (LOGGER-001).
 
-The Logger collects DSMR 5 locally and keeps snapshots pending; upload is not implemented in M2. See [M2 container operations and standalone setup](docs/milestone/m2.md#container-operations-m2-09) for exact development, test, ARM64 build, credential/device permission and cleanup commands.
+The Logger collects DSMR 5 locally and persists snapshots before upload. M4 source supports automatic upload and backlog recovery after an origin is configured; the published alpha.1 image remains pre-M4. See [M2 container operations and standalone setup](docs/milestone/m2.md#container-operations-m2-09) for exact development, test, ARM64 build, credential/device permission and cleanup commands, and the [M4 integrated walkthrough](docs/milestone/m4.md#planned-combined-development-walkthrough) for synthetic configuration-to-CSV acceptance.
 
 The login page and dashboard default to dark mode. Use the header button to switch between light and dark; only the theme preference is saved in browser storage.
 
@@ -52,7 +52,7 @@ The login page and dashboard default to dark mode. Use the header button to swit
 
 ## Server containers
 
-The Server implements administrator registration, authorized batch ingest, readings and CSV export; Logger upload remains M4 work. Standalone [Compose](deploy/server/compose.yml) contains only the application and PostgreSQL. It publishes one HTTP application port, default `127.0.0.1:18081` to container 8080; PostgreSQL has no host port. The owner's host/upstream Nginx manages HTTPS, certificates and reverse proxying independently. External-origin/HTTP verification and refreshed automated regression passed; the owner accepted [M3](docs/milestone/m3.md) and confirmed walkthrough cleanup on 2026-10-14.
+The Server implements administrator registration, authorized batch ingest, readings and CSV export; current M4 Logger source uploads confirmed batches automatically. Standalone [Compose](deploy/server/compose.yml) contains only the application and PostgreSQL. It publishes one HTTP application port, default `127.0.0.1:18081` to container 8080; PostgreSQL has no host port. The owner's host/upstream Nginx manages HTTPS, certificates and reverse proxying independently. External-origin/HTTP verification and refreshed automated regression passed; the owner accepted [M3](docs/milestone/m3.md) and confirmed walkthrough cleanup on 2026-10-14.
 
 Copy the [sanitized example](deploy/server/.env.example) to ignored `deploy/server/.env.local` and replace every placeholder. Set `WATT_SERVER_PUBLIC_ORIGIN` to the external browser origin (HTTPS behind Nginx), keep `WATT_SERVER_COOKIE_SECURE=true` for HTTPS, and select `WATT_SERVER_BIND_ADDRESS` / `WATT_SERVER_PUBLISHED_PORT` if the upstream needs a reachable interface or another port. Provide private DB/application credential directories (0700) and files (0600); application files belong to UID/GID 10001 and mount read-only. The DB directory contains `password`; the application directory contains `database-url` and `admin-password`, with matching DB credentials and no development defaults. See the [operating instructions](docs/milestone/m3.md#m3-11-deployment-operations) before starting:
 
