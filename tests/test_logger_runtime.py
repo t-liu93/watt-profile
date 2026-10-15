@@ -272,6 +272,41 @@ def test_idle_preview_requires_no_session_and_closes(runtime):
     assert rt.get_status()["logger"].collection_state == "idle"
 
 
+def test_preview_handle_is_closed_once_by_reader(runtime, monkeypatch):
+    rt, _, _, factory = runtime
+    closed_by = []
+    original = Port.close
+
+    def close(port):
+        closed_by.append(threading.current_thread().name)
+        original(port)
+
+    monkeypatch.setattr(Port, "close", close)
+    thread, result = threaded(rt.preview)
+    eventually(lambda: factory.ports)
+    factory.ports[-1].chunks.put(FRAME)
+    thread.join(2)
+    assert not isinstance(result[0], Exception)
+    assert closed_by == ["logger-reader"]
+
+
+def test_preview_reader_start_failure_finishes_temporary_lifecycle(runtime, monkeypatch):
+    rt, _, _, _ = runtime
+    original = threading.Thread.start
+
+    def fail_reader_start(thread):
+        if thread.name == "logger-reader":
+            raise RuntimeError("private-start-detail")
+        original(thread)
+
+    monkeypatch.setattr(threading.Thread, "start", fail_reader_start)
+    with pytest.raises(RuntimeError, match="private-start-detail"):
+        rt.preview()
+    assert rt.operations.state.collection_state == "idle"
+    assert rt._preview_active is False
+    assert rt._port is None
+
+
 def test_preview_cancel_and_timeout_release_temporary_owner(runtime):
     rt, _, clock, factory = runtime
     cancelled = threading.Event()
@@ -583,6 +618,60 @@ def test_serial_close_failure_prevents_new_owner(runtime, monkeypatch):
     real_close()
     rt._port = None
     rt.operations.state = rt.repository.load_lifecycle()
+
+
+def test_preview_close_failure_finishes_preview_and_keeps_owner_latched(runtime, monkeypatch):
+    rt, _, _, factory = runtime
+    thread, result = threaded(rt.preview)
+    eventually(lambda: factory.ports)
+    port = factory.ports[-1]
+    monkeypatch.setattr(port, "close", lambda: (_ for _ in ()).throw(OSError("private-port")))
+    port.chunks.put(FRAME)
+    thread.join(2)
+    assert not thread.is_alive()
+    assert str(result[0]) == "serial_close_failed"
+    assert rt.operations.state.collection_state == "idle"
+    assert rt._preview_active is False
+    assert rt._port is port
+    with pytest.raises(ValueError, match="serial_close_failed"):
+        rt.preview()
+    assert len(factory.ports) == 1
+    # Release the fake test resource after proving the runtime keeps ownership latched.
+    port.closed = True
+    rt._port = None
+    rt.operations.state = rt.repository.load_lifecycle()
+
+
+def test_preview_join_timeout_latches_owner_until_reader_exits(runtime, monkeypatch):
+    rt, _, _, factory = runtime
+    rt.join_timeout = 0.01
+    entered_read, unblock_read = threading.Event(), threading.Event()
+
+    def blocked_read(port, size):
+        entered_read.set()
+        unblock_read.wait()
+        return b""
+
+    monkeypatch.setattr(Port, "read", blocked_read)
+    cancelled = threading.Event()
+    thread, result = threaded(lambda: rt.preview(cancellation=cancelled))
+    eventually(lambda: factory.ports and entered_read.is_set())
+    cancelled.set()
+    thread.join(2)
+    assert not thread.is_alive()
+    assert str(result[0]) == "serial_join_failed"
+    owner = rt._reader
+    assert owner is not None and owner.is_alive()
+    assert rt._port is factory.ports[-1]
+    assert rt.operations.state.collection_state == "idle"
+    with pytest.raises(ValueError, match="serial_join_failed"):
+        rt.preview()
+    assert len(factory.ports) == 1
+    unblock_read.set()
+    owner.join(1)
+    assert not owner.is_alive()
+    assert rt._port is None
+    assert rt.runtime_error is None
 
 
 def test_serial_changes_pause_but_metadata_does_not(runtime):

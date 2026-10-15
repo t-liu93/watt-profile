@@ -215,7 +215,7 @@ class LoggerRuntime:
                 if self._reader and self._reader.is_alive() and self._cancel.is_set():
                     raise ValueError("busy")
                 if self._port is not None and self._cancel.is_set():
-                    raise ValueError("serial_close_failed")
+                    raise ValueError(self.runtime_error or "serial_close_failed")
                 try:
                     return action()
                 except (OSError, DBAPIError, sqlite3.DatabaseError) as exc:
@@ -305,6 +305,8 @@ class LoggerRuntime:
     def _launch(self, temporary):
         if self._reader and self._reader.is_alive():
             raise ValueError("busy")
+        if self._port is not None:
+            raise ValueError(self.runtime_error or "serial_close_failed")
         if self._reader:
             self._release()
         self._cancel = threading.Event()
@@ -320,7 +322,14 @@ class LoggerRuntime:
         self._reader = threading.Thread(
             target=self._read, args=(temporary,), daemon=True, name="logger-reader"
         )
-        self._reader.start()
+        try:
+            self._reader.start()
+        except Exception:
+            self._reader = None
+            self._window_cancel.set()
+            if self._window and self._window.ident is not None:
+                self._window.join(self.join_timeout)
+            raise
 
     def _serial_config(self):
         settings = self.repository.load_installation().settings
@@ -387,9 +396,19 @@ class LoggerRuntime:
                         with self._state:
                             self.runtime_error = "serial_close_failed"
                             self._cancel.set()
+                    else:
+                        with self._state:
+                            if self._port is port:
+                                self._port = None
+                            if self.runtime_error == "serial_join_failed" and not any(
+                                owner
+                                and owner is not threading.current_thread()
+                                and owner.is_alive()
+                                for owner in (self._reader, self._window)
+                            ):
+                                self.runtime_error = None
                 with self._state:
-                    if self.runtime_error != "serial_close_failed":
-                        self._port = None
+                    self._preview_condition.notify_all()
             if not temporary and not self._cancel.is_set():
                 self._wait(self._cancel, delays[min(retry, len(delays) - 1)])
                 retry += 1
@@ -457,7 +476,12 @@ class LoggerRuntime:
         if count:
             self.rejected_frames += count
             # Do not obscure the fault that caused the reader to stop.
-            if self.runtime_error not in {"storage_error", "storage_fatal", "serial_close_failed"}:
+            if self.runtime_error not in {
+                "storage_error",
+                "storage_fatal",
+                "serial_close_failed",
+                "serial_join_failed",
+            }:
                 self.runtime_error = "snapshot_invalid"
 
     def _mark_storage_fatal(self):
@@ -497,26 +521,30 @@ class LoggerRuntime:
                     if reason not in self.operations.unsaved_blocks:
                         self.operations.unsaved_blocks += (reason,)
                     self.runtime_error = "storage_error"
-        if self._port is not None:
-            try:
-                self._port.close()
-            except Exception:
-                self.runtime_error = "serial_close_failed"
         self._preview_condition.notify_all()
 
-        # Join only owners stopped by this event. A delayed join worker must
-        # never cancel a new reader launched after explicit recovery.
+        # Join only owners stopped by this event. Reader and window faults can
+        # be detected while holding the reception lock, which the other owner
+        # needs in order to observe cancellation and exit.
         stopped_owners = (self._reader, self._window)
 
-        def join_owners():
+        current = threading.current_thread()
+        holds_reception = current is self._reader or current is self._window
+        self._state.release()
+        if holds_reception:
+            self._reception.release()
+        try:
             for thread in stopped_owners:
-                if thread:
+                if thread and thread is not current and thread.ident is not None:
                     thread.join(self.join_timeout)
                     if thread.is_alive():
                         with self._state:
-                            self.runtime_error = "serial_join_failed"
-
-        threading.Thread(target=join_owners, daemon=True, name="logger-block-stop").start()
+                            if thread is self._reader or thread is self._window:
+                                self.runtime_error = "serial_join_failed"
+        finally:
+            if holds_reception:
+                self._reception.acquire()
+            self._state.acquire()
 
     def _persist(self, snapshots):
         for snapshot in snapshots:
@@ -565,21 +593,20 @@ class LoggerRuntime:
     def _release(self):
         self._cancel.set()
         self._window_cancel.set()
-        port = self._port
+        owners = (self._reader, self._window)
+        current = threading.current_thread()
         self._state.release()
         try:
-            if port is not None:
-                try:
-                    port.close()
-                except Exception:
-                    raise ValueError("serial_close_failed") from None
-            for thread in (self._reader, self._window):
-                if thread and thread is not threading.current_thread():
+            for thread in owners:
+                if thread and thread is not current and thread.ident is not None:
                     thread.join(self.join_timeout)
                     if thread.is_alive():
+                        with self._state:
+                            if thread is self._reader or thread is self._window:
+                                self.runtime_error = "serial_join_failed"
                         raise ValueError("serial_join_failed")
             if self._port is not None:
-                raise ValueError("serial_close_failed")
+                raise ValueError(self.runtime_error or "serial_close_failed")
         finally:
             self._state.acquire()
 
@@ -619,16 +646,12 @@ class LoggerRuntime:
             sequence = self._sequence
             disconnected = self._disconnect_sequence
             temporary = result.result == "ok"
-            if temporary:
-                try:
-                    self._serial_config()
-                except Exception:
-                    self._preview_active = False
-                    raise
-                self.operations.state = result.lifecycle
-                self._launch(True)
-            deadline = self.clock.monotonic() + 15
             try:
+                if temporary:
+                    self._serial_config()
+                    self.operations.state = result.lifecycle
+                    self._launch(True)
+                deadline = self.clock.monotonic() + 15
                 while self._sequence == sequence:
                     if self._fatal_storage:
                         raise RuntimeError("storage_fatal")
@@ -649,8 +672,12 @@ class LoggerRuntime:
             finally:
                 try:
                     if temporary:
-                        self._release()
-                        self.operations.state = pure.finish_preview(self.operations.state).lifecycle
+                        try:
+                            self._release()
+                        finally:
+                            self.operations.state = pure.finish_preview(
+                                self.operations.state
+                            ).lifecycle
                 finally:
                     self._preview_active = False
                     self._preview_condition.notify_all()
