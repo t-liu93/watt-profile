@@ -6,9 +6,9 @@ Watt Profile P1 协议和数据契约的独立 Python 包。
 
 ## CI 与发布镜像
 
-每次 push 执行完整合成数据 CI。版本 tag 在检查和原生镜像测试通过后，将独立的 Logger、Server AMD64/ARM64 镜像发布到 GHCR。参阅 [CI、发布标签与树莓派拉取说明](docs/ci-and-release_zh.md)。Logger 已使用 SQLite 本地保存数据；上传仍属于 M4。
+每次 push 执行合成数据 CI，其中包括显式运行的四周容量 selector。版本 tag 在检查和原生镜像测试通过后，将独立的 Logger、Server AMD64/ARM64 镜像发布到 GHCR。参阅 [CI、发布标签与树莓派拉取说明](docs/ci-and-release_zh.md)。M4 源码正在实现上传和积压恢复；已发布的 `v0.1.0-alpha.1` 镜像仍为 M4 前版本。
 
-[M4 设计](docs/milestone/m4_zh.md)已就绪：十个顺序原子任务涵盖 LOGGER-001 修复、可靠上传／补传、集成验证及所有者 ARM64 Pi 4 连续 72 小时验收，实现未开始。修订硬件边界见 [MVP 路线图](docs/mvp-roadmap_zh.md)。
+[M4 设计及所有者操作交接](docs/milestone/m4_zh.md)记录十个顺序任务，涵盖 LOGGER-001 修复、可靠上传／补传、四周容量、集成验证及所有者 ARM64 Pi 4 连续 72 小时验收。M4 实现和验收仍在进行；发布和实物验收分别处理。修订硬件边界见 [MVP 路线图](docs/mvp-roadmap_zh.md)。
 
 ## 开发环境
 

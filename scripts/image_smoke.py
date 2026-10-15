@@ -88,6 +88,15 @@ def main() -> None:
         timeout=10,
     )
     if component == "logger":
+        importlib.import_module("httpx")
+        importlib.import_module("watt_profile.logger.upload")
+        importlib.import_module("watt_profile.logger.capacity")
+        subprocess.run(
+            [sys.executable, "-m", "watt_profile.cli.logger_capacity", "--help"],
+            check=True,
+            capture_output=True,
+            timeout=10,
+        )
         with tempfile.TemporaryDirectory(prefix="watt-image-smoke-") as temporary:
             check_logger_storage(Path(temporary))
     print(f"Passed {component}/{architecture}: native imports, packaged assets, UID and CLI")

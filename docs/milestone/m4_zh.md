@@ -2,7 +2,7 @@
 
 > [English — source of truth](m4.md) · **中文**
 
-状态：实施中，2026-10-15。M1–M3 已验收。M4-01–M4-08 已通过自动检查与独立评审；M4-09–M4-10 仍为计划任务。LOGGER-001 代码已验证，实机和发布仍待完成。业主报告现有 ARM64 Raspberry Pi 4 持续离线采集、积累待上传记录，尚未配置服务器 origin；代理未检查设备或其数据。
+状态：实施中，2026-10-15。M1–M3 已验收。M4-01–M4-09 已通过自动检查与独立评审；M4-10 仍为计划任务。LOGGER-001 代码已验证，实机和发布仍待完成。业主报告现有 ARM64 Raspberry Pi 4 持续离线采集、积累待上传记录，尚未配置服务器 origin；代理未检查设备或其数据。
 
 ## 1. 目标与 Agent 使用方式
 
@@ -279,11 +279,11 @@ docker compose -p "$M4_PROJECT" -f docker-compose.dev.yml down
 
 M4-09–10 在交给所有者前须用可丢弃安装验证精确命令。遵守既有[备份／恢复契约](m2_zh.md#c5-存储压力清理与备份)和[已发布镜像部署](../ci-and-release_zh.md#树莓派拉取-logger)。沿用现有 Compose project、数据卷、设置、密码和设备映射；修改 project 可能选中空卷，并非升级。
 
-1. 记录当前镜像／版本，以运行镜像中的 `logger_admin backup` 创建新的私有在线备份。重建容器前，把 SQLite／Token／manifest 输出复制到新的、所有者控制的私有宿主目录，确认备份完成；仅留在容器 `/tmp` 会丢失。不打印 Token／备份内容，不只复制 live SQLite 主文件。最终交接固定目标名、权限和复制命令。
-2. 另行授权发布后，选择新的固定 Logger 镜像；沿用 env／project／Compose 执行 `up --no-build --pull always -d --wait --wait-timeout 120 logger`。不删除卷、不重新生成凭据／会话。现有所有者安装无 origin，因此已积累 pending 也允许首次保存。
+1. 记录当前镜像引用和设备 UUID。旧 Logger 仍运行时，使用下方精确在线备份及 `docker cp` 命令，指定新建宿主目标目录和唯一容器临时路径。重建前确认三个文件及权限正确；仅留在容器 `/tmp` 的副本会在重建时丢失。不打印 Token／备份内容，也不只复制 live SQLite 主文件。
+2. 另行授权发布后，在现有忽略 env 文件里设置新固定 Logger 镜像，然后执行 `docker compose --env-file deploy/logger/.env.local -p watt-logger -f deploy/logger/compose.yml up --no-build --pull always -d --wait --wait-timeout 120 logger`。沿用 project、数据卷、设置、密码文件及设备映射。不删除卷、不重新生成凭据／会话。现有所有者安装无 origin，因此已积累 pending 也允许首次保存。
 3. 配置真实 Server 公网 HTTPS origin（或所有者隧道内 HTTP），登记现有设备及所需现场，然后 Retry。观察新旧记录保留原归属、积压下降和真实确认。Agent 检查不连接这些服务。
 4. 安全暂停后验证预览及受控恢复，再执行 C9 的独立连续 72 小时区间。验收记录只保存脱敏结果，私有读数和备份留在本地。
-5. 没有 schema 变更时，可在保留卷上重建旧固定镜像回滚；记录仍在，但旧版不能上传且仍有 LOGGER-001。先用合成副本验证回滚。不把旧备份覆盖 live 安装当作常规回滚，因为会丢失较新已提交记录。灾难恢复按 M2 写入新／空目录。
+5. 若新进程未就绪，执行 `docker compose --env-file deploy/logger/.env.local -p watt-logger -f deploy/logger/compose.yml ps --all` 和 `docker compose --env-file deploy/logger/.env.local -p watt-logger -f deploy/logger/compose.yml logs --tail=100 logger`；保留原卷。schema 未变更时，回滚即设置旧固定镜像引用并执行同一 `up --no-build --pull always -d --wait --wait-timeout 120 logger`。记录仍在，但旧版不能上传且仍有 LOGGER-001。先用合成副本验证回滚。不把旧备份覆盖 live 安装当作常规回滚，因为会丢失较新已提交记录。灾难恢复按 M2 写入新／空目录。
 
 说明不得包含真实设备 `down --volumes`、全局 Docker prune、生产数据库恢复或上游配置修改。普通升级和实物检查仍由所有者执行。发布版本／digest 和实际命令结果在授权／执行后补入。
 
@@ -291,12 +291,12 @@ M4-09–10 在交给所有者前须用可丢弃安装验证精确命令。遵守
 
 | 必需结果 | 当前证据 |
 | --- | --- |
-| M4 设计及双语契约／任务卡 | 设计就绪；2026-10-15 已完成 M4-01–M4-08 自动验收 |
+| M4 设计及双语契约／任务卡 | 设计就绪；2026-10-15 已完成 M4-01–M4-09 自动验收 |
 | LOGGER-001 runtime／API／浏览器／容器修复 | M4-01–02 代码检查与独立评审通过；实机／发布待完成 |
 | 自动上传器、组隔离及精确确认 | 传输／调度器／应用／API／UI 及真实 HTTP／容器检查和独立评审通过 |
 | 端到端 HTTP／Compose 恢复、查询／CSV 和完整 CI | M4-08 选择器及独立评审通过；完整 CI 在 M4-09 后执行 |
-| 四周合成容量及所有者足够的存储分配 | 待执行 |
-| 升级／备份／恢复及 AMD64／ARM64 镜像检查 | 待执行 |
+| 四周合成容量及所有者足够的存储分配 | 合成检查通过；含预留实测需求 1,374,522,219 字节；所有者配额／适配待验 |
+| 升级／备份／恢复及 AMD64／ARM64 镜像检查 | 软件检查通过；AMD64 原生、ARM64 模拟；ARM64 实机待验 |
 | 所有者集成浏览器走查 | 待执行 |
 | Pi 4 ARM64 适配、资源及连续 72 小时 | 待执行；M4 前的现有采集不算 M4 上传验收 |
 | 新版本发布授权／发布 | 独立操作，不宣称已发布 |
@@ -321,9 +321,127 @@ M4-09–10 在交给所有者前须用可丢弃安装验证精确命令。遵守
 
 - **M4-08 — 自动验收，2026-10-15：** 实现真实 HTTP/PG 投递、提交后响应丢失、身份/checkpoint 持久化，以及完整 Compose 断网、in-flight 强杀、授权恢复和 A→B→A 隔离。管线 **1 passed**；完整 Compose **1 passed，122.54 秒**；既有 Logger-only **1 passed**、Server Compose **4 passed**、recovery **1 passed**、Logger/Server 浏览器 **11/10 passed**、CI 资源保护 **3 passed**。Ruff lint/format、shell 语法及 diff check 通过。全新独立评审通过，另跑管线 **1**、完整 Compose **1（122.21 秒）** 和 browser/transport/bootstrap **41**。所有一次性项目及精确应用标签均清理并核对为空。完整 CI／容量及架构检查在 M4-09–10 执行；未改动实机或已发布镜像。
 
+- **M4-09 — 自动验收，2026-10-15：** 实现仅合成数据的容量 CLI、CI 显式全量容量选择器、旧安装 lifespan／确认／并发备份、备份复制出容器／重建／恢复检查、安装镜像覆盖及双语操作说明。全量容量 **1 passed，127.65 秒**；维护 **60**、真实 HTTP／旧安装管线 **3**、wheel **1**；Logger Compose **1（116.18 秒）**。四种架构镜像构建及禁网 smoke 通过（AMD64 原生、ARM64 QEMU），真实旧镜像→M4→旧镜像保留验证通过。最终独立评审通过：容量 **1（127.85 秒）**、维护／管线／wheel **64**；Ruff／format／shell／diff 检查通过。两轮修复解决中文可执行命令遗漏，以及近上限估算遗漏持久化投影的问题。最终代表性需求 **1,374,522,219 字节**；500 条真实 SQLite 近上限样本给出独立标注的 **8,048,124,887 字节**估算。所有者配额／适配、原生 ARM64 及 72 小时验收待完成。详细测量见下文；未改生产数据或发布版本。
+
+### 容量与镜像验证
+
+2026-10-15 在 Linux x86_64、Python 3.12.13、Docker 29.8.0、Compose v5.5.1、Buildx v0.37.1 上测量。最终 CLI 样本包含全部 18 项三相指标及脱敏字段、递进的十秒时间戳／计数器和私有合成安装。机器结果由工具写入 `capacity.json`；不跟踪样本数据库或 Token。维护检查 **60 passed**；真实 HTTP 及两种旧安装／确认／备份变体 **3 passed**；安装 wheel 打包 **1 passed**。修改后的 Logger Compose 备份复制出容器／重建／复制回容器／恢复 **1 passed，116.18 秒**。`watt-m2-m4-1792087079-5309` 项目容器、卷、网络及精确应用标签均删除并核对为空。Ruff lint/format（121 文件）、shell 语法及 diff check 通过。
+
+| 最终代表性测量 | 字节／结果 |
+| --- | --- |
+| 记录／已确认／仍 pending | 241,920 / 200 / 241,720 |
+| 首条代表性 canonical Snapshot／实际 canonical 总量 | 2,697 / 658,715,925 字节 |
+| SQLite 数据库／页大小／页数 | 1,299,156,992 字节 / 4,096 / 317,177 |
+| WAL 峰值／SHM 峰值；最终 WAL／SHM | 8,223,552 / 32,768；0 / 0 字节 |
+| 保守的数据库 + WAL 峰值 + SHM 峰值 | 1,307,413,312 字节 |
+| 私有安装元数据 | 43 字节 |
+| 含元数据与 64 MiB 预留的需求 | **1,374,522,219 字节（约 1.28 GiB）** |
+| 合法近上限 Snapshot／500 条 SQLite 样本／数据库敏感性估算 | 16,384 / 16,633,856 / 8,048,124,887 字节；仅为估算 |
+| 构造／选组／状态／200 条确认 | 109.90 / 8.55 / 0.36 / 0.47 秒 |
+| 所有者分配／容量验收 | 未知／待完成；不宣称 Pi 容量通过 |
+
+全量 opt-in 样本在 127.65 秒通过，独立检查计数、codec／身份绑定、字段脱敏、私有权限、SQLite 页／索引及受保护清理。开放会话清理不删除记录；完成会话后只删除 200 条已确认记录，保留全部 241,720 条 pending。临时输出已删除。代表性容量与时间是本机观测值，不是全部合法 Snapshot 的上限，也不是 Pi 资源测量。
+
+近上限敏感性来自一个单独的私有 SQLite 安装，其中有 500 条合法的 16,384 字节 canonical Snapshot。样本建立自己的安装／会话／source 绑定，并通过已接受 schema 和 `_projection` 插入，因此观测到的 16,633,856 字节数据库包含 canonical 文本、重复保存的 fields／quality／metric projections、索引及 SQLite 页开销。估算以代表性数据库实测值为基线，再将近上限与代表性行的每行数据库增长差外推至 241,920 条记录。该有界样本修正了先前只按 canonical 字节增长的低估；仍属外推，页分裂、碎片、payload 形状和字段／索引分布均会影响存储。上表代表性需求包含 WAL／SHM 和预留空间，敏感性估算不包含它们。
+
+两种产品均使用私有 `DOCKER_CONFIG` 及临时 `docker-container` builder `watt-m4-arch20261015` 构建。实际命令形式为 `docker buildx build --builder watt-m4-arch20261015 --platform linux/ARCH --load --provenance=false -f deploy/COMPONENT/Dockerfile -t watt-profile-COMPONENT:m4-20261015-ARCH .`；未 push。本地镜像 ID：
+
+| 产品／架构 | 本地镜像 ID | Smoke 执行 |
+| --- | --- | --- |
+| Logger / AMD64 | `sha256:e6700750689b5ece27e8d0490e90e47dd7767f238ccf9b3e736e271877c2df41` | 原生 x86_64，通过 |
+| Logger / ARM64 | `sha256:1dc14a60ce55c3ee77aa00666333a6cdaf2d0a61c626c2100d510f073d6f7747` | BuildKit QEMU，通过 |
+| Server / AMD64 | `sha256:15546d24dce8a5a7949c687e40da0f94dce3694c8b57fe25aa67738efb145411` | 原生 x86_64，通过 |
+| Server / ARM64 | `sha256:b683a2b439b96587d859b585315822752d49cecdbadf8f5658378cc4692689b7` | BuildKit QEMU，通过 |
+
+原生 smoke 使用 `docker run --rm --network none -i --entrypoint python IMAGE - COMPONENT amd64 < scripts/image_smoke.py`。ARM64 使用临时 Dockerfile：完整保留产品 Dockerfile，再添加 `RUN --network=none python - COMPONENT arm64` heredoc，内嵌 smoke 脚本。仅临时模拟测试副本把 CLI 子进程期限由 10 秒延长到 120 秒；断言及应用代码不变。Logger／Server 模拟 smoke 分别在 31.75／11.08 秒通过。未注册宿主 binfmt，也未更改默认 builder；原生 ARM64／Pi 执行仍待完成。最终构建期间源码／包／smoke 输入哈希保持不变。
+
+另一个一次性 AMD64 项目运行从 `a6359f81d270ee9c0970e5e1131e94464148ab31` 构建的真实 M4 前镜像，在同一合成卷升级到 M4，再回滚旧镜像。每次重建后，两条 pending canonical 记录、安装身份、Token、设置及暂停的开放会话意图均一致。私有在线备份在重建前复制到宿主机。该项目容器／网络／卷及两个精确临时镜像标签均删除并核对为空。这是软件兼容性证据；未更改已发布镜像或真实安装。
+
 ### 隔离集成故障驱动
 
-HTTP 与 Compose 选择器本身就是测试拥有的故障驱动，不接管已有走查或生产项目。激活锁定的 Python 环境后，从仓库根目录执行：
+HTTP、容量和 Compose 选择器只创建各自的一次性资源，不接管已有走查或生产项目。使用锁定的 Python 环境显式执行完整四周容量 fixture：
+
+```sh
+WATT_M4_CAPACITY_ROOT=$(mktemp -d /tmp/watt-m4-capacity.XXXXXXXX)
+WATT_M4_CAPACITY_PYTHON=${WATT_CI_PYTHON:-python}
+WATT_TEST_M4_CAPACITY=1 "$WATT_M4_CAPACITY_PYTHON" -m pytest \
+  tests/integration/test_logger_capacity.py -q \
+  --basetemp="$WATT_M4_CAPACITY_ROOT/pytest"
+rm -rf -- "$WATT_M4_CAPACITY_ROOT"
+```
+
+此选择器为 opt-in（`WATT_TEST_M4_CAPACITY=1`）；`scripts/ci.sh` 会设置它，并使用自己临时根目录下的新子目录。若要保留机器可读测量结果以供复核，可创建私有临时父目录并单独调用 CLI：
+
+```sh
+WATT_M4_CAPACITY_ROOT=$(mktemp -d /tmp/watt-m4-capacity.XXXXXXXX)
+WATT_M4_CAPACITY_OUTPUT="$WATT_M4_CAPACITY_ROOT/fixture"
+python -m watt_profile.cli.logger_capacity --output "$WATT_M4_CAPACITY_OUTPUT" --records 241920
+```
+
+CLI 会创建全新私有合成安装和 `capacity.json`，不接受 live 路径或 origin。结果分别列出单条代表性快照 `representative_snapshot_canonical_bytes` 和全部 241,920 条记录的 `total_canonical_bytes`。查看 `required_bytes_with_metadata_and_64_mib_reserve`：该保守值将实测数据库大小、WAL 与 SHM 峰值、安装元数据（包括私有 Token 文件）及 64 MiB 预留相加。与所有者记录的 Pi 分配比较，然后只移除此轮临时根目录。分配值提供前，记录实测需求但容量仍待验；近上限值只是独立敏感性估计，不能代替代表性测量。
+
+Logger Compose 验收会测试完整在线备份、复制到宿主机、容器重建后复制回来，并仅恢复到空的临时目标。所有者安装使用同样流程：为宿主备份新建 0700 私有目录，并选唯一容器临时路径。沿用现有运行 project、env、卷及 Logger：
+
+```sh
+WATT_LOGGER_PROJECT=watt-logger # 设置为现有项目的准确名称
+OLD_PINNED_IMAGE=ghcr.io/OWNER/IMAGE@sha256:OLD_DIGEST
+NEW_PINNED_IMAGE=ghcr.io/OWNER/IMAGE@sha256:NEW_DIGEST
+WATT_LOGGER_BACKUP_DIR=/absolute/private/new/backup-directory
+WATT_LOGGER_BACKUP_TMP=/tmp/watt-profile-backup-unique
+test -n "$(docker compose --env-file deploy/logger/.env.local -p "$WATT_LOGGER_PROJECT" \
+  -f deploy/logger/compose.yml ps -q logger)"
+mkdir -m 700 "$WATT_LOGGER_BACKUP_DIR"
+docker compose --env-file deploy/logger/.env.local -p "$WATT_LOGGER_PROJECT" \
+  -f deploy/logger/compose.yml \
+  exec -T logger python -m watt_profile.cli.logger_admin backup \
+  --data-dir /var/lib/watt-profile --output "$WATT_LOGGER_BACKUP_TMP"
+WATT_LOGGER_CONTAINER=$(docker compose --env-file deploy/logger/.env.local -p "$WATT_LOGGER_PROJECT" \
+  -f deploy/logger/compose.yml ps -q logger)
+docker cp "$WATT_LOGGER_CONTAINER:$WATT_LOGGER_BACKUP_TMP/." "$WATT_LOGGER_BACKUP_DIR/"
+chmod 700 "$WATT_LOGGER_BACKUP_DIR"
+chmod 600 "$WATT_LOGGER_BACKUP_DIR"/logger.sqlite3 \
+  "$WATT_LOGGER_BACKUP_DIR"/upload-token "$WATT_LOGGER_BACKUP_DIR"/manifest.json
+test -s "$WATT_LOGGER_BACKUP_DIR/logger.sqlite3" \
+  && test -s "$WATT_LOGGER_BACKUP_DIR/upload-token" \
+  && test -s "$WATT_LOGGER_BACKUP_DIR/manifest.json"
+docker compose --env-file deploy/logger/.env.local -p "$WATT_LOGGER_PROJECT" \
+  -f deploy/logger/compose.yml config --quiet
+WATT_LOGGER_IMAGE="$NEW_PINNED_IMAGE" docker compose --env-file deploy/logger/.env.local \
+  -p "$WATT_LOGGER_PROJECT" -f deploy/logger/compose.yml \
+  up --no-build --pull always -d --wait --wait-timeout 120 logger
+docker compose --env-file deploy/logger/.env.local -p "$WATT_LOGGER_PROJECT" \
+  -f deploy/logger/compose.yml ps --all
+docker compose --env-file deploy/logger/.env.local -p "$WATT_LOGGER_PROJECT" \
+  -f deploy/logger/compose.yml logs --tail=100 logger
+```
+
+执行前先将 `WATT_LOGGER_PROJECT` 设为当前安装的准确 Compose 项目名，并确认它仍使用原数据卷、设置、密码和设备映射；更换项目名可能选中空卷。将 `OLD_PINNED_IMAGE` 与 `NEW_PINNED_IMAGE` 替换为实际软件包的不可变 digest 引用。升级前用同一 env／项目执行 `config --quiet`，并核实当前容器、命名卷、镜像引用及 manifest 文件。完成备份、复制和隔离恢复验证后，才可在另行授权发布后执行升级。妥善保管宿主副本，不打印 Token、哈希或 manifest；保留旧固定镜像引用用于回滚。
+
+若新 Logger 不健康，保留 project／数据卷并检查上面的 `ps --all` 与日志命令。在已登录 UI 中检查上传模式／状态、下次尝试时间、全局／组错误及 pending 数；普通网络退避期间等待，修复凭据／授权／origin 后点 Retry；若状态显示 `upload_storage_error` 或 `storage_full`，先处理本地空间。存在 pending 记录时不要清空非空 origin。schema 未变时可这样回滚：
+
+```sh
+WATT_LOGGER_IMAGE="$OLD_PINNED_IMAGE" docker compose --env-file deploy/logger/.env.local \
+  -p "$WATT_LOGGER_PROJECT" -f deploy/logger/compose.yml \
+  up --no-build --pull always -d --wait --wait-timeout 120 logger
+```
+
+恢复仅用于灾难恢复，并非日常回滚。临时 Compose 验收会在容器重建后测试将备份复制回来，再用 CLI 恢复到新建空目录：
+
+```sh
+WATT_LOGGER_CONTAINER=$(docker compose --env-file deploy/logger/.env.local \
+  -p "$WATT_LOGGER_PROJECT" -f deploy/logger/compose.yml ps -q logger)
+docker exec "$WATT_LOGGER_CONTAINER" mkdir -m 700 /tmp/watt-profile-backup-copy
+docker cp "$WATT_LOGGER_BACKUP_DIR/." \
+  "$WATT_LOGGER_CONTAINER:/tmp/watt-profile-backup-copy/"
+docker exec --user 0 "$WATT_LOGGER_CONTAINER" chown -R 10001:10001 \
+  /tmp/watt-profile-backup-copy
+docker exec "$WATT_LOGGER_CONTAINER" python -m watt_profile.cli.logger_admin restore \
+  --backup /tmp/watt-profile-backup-copy --data-dir /tmp/watt-profile-restored
+```
+
+核对 device/session 身份、Token、Snapshot canonical 字节和上传标志与源备份一致。不要恢复覆盖 live 卷。
+
+激活锁定的 Python 环境后，从仓库根目录执行 HTTP 与 Compose 测试：
 
 ```sh
 M4_CHECK_ROOT=$(mktemp -d /tmp/watt-m4-check.XXXXXXXX)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import time
@@ -92,10 +93,21 @@ def wait_for(check, seconds=35):
     pytest.fail("Timed out waiting for synthetic collection/readiness")
 
 
-def test_complete_offline_compose_browser_walkthrough(compose):
+def test_complete_offline_compose_browser_walkthrough(compose, tmp_path):
     run, base = compose
     assert run("exec", "-T", "logger", "id", "-u").strip() == "10001"
     assert run("exec", "-T", "logger", "id", "-g").strip() == "10001"
+    run(
+        "exec",
+        "-T",
+        "logger",
+        "python",
+        "-c",
+        "import socket; socket.socket.connect = "
+        "lambda *a, **k: (_ for _ in ()).throw(AssertionError('network disabled')); "
+        "import httpx; import watt_profile.logger.upload; "
+        "import watt_profile.logger.capacity; import watt_profile.cli.logger_capacity",
+    )
     with httpx.Client(base_url=base, timeout=25, trust_env=False) as client:
         assert client.get("/health/ready").status_code == 200
         assert client.get(PREFIX + "/status").status_code == 401
@@ -326,6 +338,104 @@ shutil.rmtree('/tmp/m2-backup')
 shutil.rmtree('/tmp/m2-restored')
 """
             run("exec", "-T", "logger", "python", "-c", verify)
+            assert disk() == final_disk
+
+            # Exercise the owner handoff: copy the coherent online backup out before
+            # recreation, then restore that host copy only into a new empty target.
+            host_backup = tmp_path / "owner-backup-copy"
+            host_backup.mkdir(mode=0o700)
+            backup_path = "/tmp/m4-owner-online-backup"
+            run(
+                "exec",
+                "-T",
+                "logger",
+                "python",
+                "-m",
+                "watt_profile.cli.logger_admin",
+                "backup",
+                "--data-dir",
+                "/var/lib/watt-profile",
+                "--output",
+                backup_path,
+            )
+            container_id = run("ps", "--quiet", "logger").strip()
+            subprocess.run(
+                ["docker", "cp", f"{container_id}:{backup_path}/.", str(host_backup)],
+                cwd=ROOT,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            os.chmod(host_backup, 0o700)
+            for filename in ("logger.sqlite3", "upload-token", "manifest.json"):
+                artifact = host_backup / filename
+                assert artifact.is_file() and artifact.stat().st_size > 0
+                os.chmod(artifact, 0o600)
+            assert stat.S_IMODE(host_backup.stat().st_mode) == 0o700
+            assert all(
+                stat.S_IMODE((host_backup / filename).stat().st_mode) == 0o600
+                for filename in ("logger.sqlite3", "upload-token", "manifest.json")
+            )
+            recreate()
+            run("exec", "-T", "logger", "mkdir", "-m", "700", "/tmp/m4-owner-backup-copy")
+            subprocess.run(
+                [
+                    "docker",
+                    "cp",
+                    f"{host_backup}/.",
+                    f"{run('ps', '--quiet', 'logger').strip()}:/tmp/m4-owner-backup-copy/",
+                ],
+                cwd=ROOT,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            run(
+                "exec",
+                "-T",
+                "--user",
+                "0",
+                "logger",
+                "chown",
+                "-R",
+                "10001:10001",
+                "/tmp/m4-owner-backup-copy",
+            )
+            run(
+                "exec",
+                "-T",
+                "logger",
+                "python",
+                "-m",
+                "watt_profile.cli.logger_admin",
+                "restore",
+                "--backup",
+                "/tmp/m4-owner-backup-copy",
+                "--data-dir",
+                "/tmp/m4-owner-restored",
+            )
+            restore_copy = """
+from pathlib import Path
+from watt_profile.logger.identity import read_upload_token
+from watt_profile.logger.storage.database import create_database
+from watt_profile.logger.storage.repository import LoggerRepository
+source = Path('/var/lib/watt-profile')
+backup = Path('/tmp/m4-owner-backup-copy')
+target = Path('/tmp/m4-owner-restored')
+a = create_database(source / 'logger.sqlite3')
+b = create_database(target / 'logger.sqlite3')
+try:
+    assert LoggerRepository(a).load_installation() == LoggerRepository(b).load_installation()
+    assert read_upload_token(source) == read_upload_token(target)
+    assert LoggerRepository(a).select_pending_group() == LoggerRepository(b).select_pending_group()
+finally:
+    a.dispose()
+    b.dispose()
+import shutil
+shutil.rmtree(backup)
+shutil.rmtree(target)
+"""
+            run("exec", "-T", "logger", "python", "-c", restore_copy)
             assert disk() == final_disk
             context.close()
         finally:

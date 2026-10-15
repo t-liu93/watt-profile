@@ -153,7 +153,7 @@ def backup(data_dir: Path, output: Path):
         with engine.raw_connection() as source:
             destination = sqlite3.connect(output / "logger.sqlite3")
             try:
-                source.driver_connection.backup(destination, pages=128)
+                _online_copy(source.driver_connection, destination)
             finally:
                 destination.close()
         _write_private(output / "upload-token", token.encode("ascii"))
@@ -171,6 +171,11 @@ def backup(data_dir: Path, output: Path):
         _sync(output)
     finally:
         engine.dispose()
+
+
+def _online_copy(source: sqlite3.Connection, destination: sqlite3.Connection) -> None:
+    """Run SQLite's coherent online backup; isolated tests can gate this boundary."""
+    source.backup(destination, pages=128)
 
 
 def _regular(path):

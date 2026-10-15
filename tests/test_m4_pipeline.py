@@ -14,18 +14,25 @@ from dataclasses import replace
 from uuid import UUID, uuid4
 
 import httpx
+import pytest
 import uvicorn
+from sqlalchemy import event, text
 from test_logger_runtime import Factory, FakeClock, start
+from test_logger_storage import NOW, record
 from test_m2_pipeline import collect_window
 from test_server_auth import server_settings  # noqa: F401
 
 from watt_profile.contracts.domain import canonical_snapshot_bytes, payload_sha256
-from watt_profile.contracts.upload import validate_confirmation_body
+from watt_profile.contracts.lifecycle import new_deployment, start_collection
+from watt_profile.contracts.upload import UploadConfirmation, validate_confirmation_body
 from watt_profile.logger.app import create_app as logger_app
 from watt_profile.logger.deployment import DeploymentCommand
-from watt_profile.logger.identity import read_upload_token
+from watt_profile.logger.identity import load_or_initialize_installation, read_upload_token
+from watt_profile.logger.maintenance import backup, restore
 from watt_profile.logger.settings import LoggerSettings
-from watt_profile.logger.storage.repository import LocalSettings
+from watt_profile.logger.storage.database import create_database, migrate
+from watt_profile.logger.storage.repository import LocalSettings, LoggerRepository, Site
+from watt_profile.logger.upload import TransportResult
 from watt_profile.server.app import create_app as server_app
 from watt_profile.server.export import CSV_COLUMNS
 from watt_profile.server.storage.repository import ServerRepository
@@ -299,3 +306,204 @@ def test_offline_registration_automatic_http_upload_query_csv_and_checkpoint(
         assert read_upload_token(settings.data_dir) == summary["token"]
         assert restarted.get_status().last_successful_upload_at == expected_checkpoint
         assert restarted.get_status().pending_count == 0
+
+
+@pytest.mark.parametrize("saved_origin", [False, True], ids=["first-origin", "saved-origin"])
+def test_existing_logger_installation_upgrade_confirmation_backup_restore(
+    tmp_path, saved_origin, monkeypatch
+):
+    """M4 startup uploads an existing M2 backlog without replacing installation state."""
+    data_dir = tmp_path / "old-installation"
+    data_dir.mkdir(mode=0o700)
+    engine = create_database(data_dir / "logger.sqlite3")
+    password_file = tmp_path / "operator-password"
+    password_file.write_text("synthetic-password-long-enough", encoding="utf-8")
+    password_file.chmod(0o600)
+    try:
+        migrate(engine)  # Existing M2/M3 Logger schema; no uploader-owned migration.
+        repo = LoggerRepository(engine)
+        load_or_initialize_installation(repo, data_dir, NOW)
+        saved_token = read_upload_token(data_dir)
+        site = repo.save_site(Site(site_id=uuid4(), address="Synthetic prior installation"))
+        repo.commit_deployment_change(
+            None, new_deployment(repo.load_lifecycle(), site.site_id, NOW).lifecycle
+        )
+        lifecycle = repo.load_lifecycle()
+        session_id = lifecycle.session.descriptor.session_id
+        repo.commit_deployment_change(session_id, start_collection(lifecycle, session_id).lifecycle)
+        if saved_origin:
+            repo.save_settings(LocalSettings(server_url="https://upload.invalid"))
+        snapshot = record(repo)
+        repo.insert_snapshot(snapshot)
+        group = repo.select_pending_group()
+        before = repo.load_installation()
+        engine.dispose()
+
+        class ConfirmationTransport:
+            def __init__(self):
+                self.started = threading.Event()
+                self.release = threading.Event()
+
+            async def send(self, origin, token, pending):
+                assert origin == "https://upload.invalid"
+                assert token == saved_token
+                assert pending.batch.records == group.batch.records
+                self.started.set()
+                await asyncio.to_thread(self.release.wait, 10)
+                confirmation = UploadConfirmation(
+                    schema_version=1,
+                    device_id=pending.batch.device_id,
+                    confirmed_record_ids=tuple(item.record_id for item in pending.batch.records),
+                )
+                return TransportResult(status_code=200, confirmation=confirmation)
+
+            async def aclose(self):
+                return None
+
+        import asyncio
+
+        transport = ConfirmationTransport()
+        config = LoggerSettings(
+            data_dir=data_dir,
+            host="127.0.0.1",
+            port=0,
+            input_mode="synthetic",
+            operator_user="operator",
+            operator_password_file=password_file,
+            cookie_secure=False,
+        )
+        saved_rows = None
+        with loopback(
+            lambda _: logger_app(config, upload_transport_factory=lambda _: transport)
+        ) as (app, client, _):
+            repository = app.state.repository
+            if saved_origin:
+                assert transport.started.wait(5)
+            else:
+                assert not transport.started.wait(0.1)
+            current = repository.load_installation()
+            assert current.device_id == before.device_id
+            assert current.lifecycle.session.descriptor == before.lifecycle.session.descriptor
+            assert current.lifecycle.session.collection_enabled
+            assert read_upload_token(data_dir) == saved_token
+            assert repository.select_pending_group() == group
+
+            if not saved_origin:
+                headers = login(client, logger=True)
+                response = client.patch(
+                    "/api/local/v1/config",
+                    json={
+                        "expected_session_id": str(session_id),
+                        "server_url": "https://upload.invalid",
+                    },
+                    headers=headers,
+                )
+                assert response.status_code == 200
+                assert transport.started.wait(5)
+
+            # Enter the real SQLite confirmation UPDATE, pin an online backup during it,
+            # then let both operations finish before restoring into a separate directory.
+            update_active = threading.Event()
+            continue_update = threading.Event()
+
+            def pause_confirmation(connection, cursor, statement, parameters, context, many):
+                if "UPDATE SNAPSHOTS" in statement.upper() and not update_active.is_set():
+                    update_active.set()
+                    assert continue_update.wait(10)
+
+            event.listen(repository.engine, "before_cursor_execute", pause_confirmation)
+            import watt_profile.logger.maintenance as maintenance
+
+            original_online_copy = maintenance._online_copy
+            backup_copy_finished = threading.Event()
+
+            def observe_online_copy(source, destination):
+                original_online_copy(source, destination)
+                backup_copy_finished.set()
+
+            monkeypatch.setattr(maintenance, "_online_copy", observe_online_copy)
+            transport.release.set()
+            assert update_active.wait(5)
+            saved, target = tmp_path / "old-backup", tmp_path / "restored-installation"
+            backup_started = threading.Event()
+            backup_error = []
+
+            def make_backup():
+                backup_started.set()
+                try:
+                    backup(data_dir, saved)
+                except BaseException as exc:
+                    backup_error.append(exc)
+
+            worker = threading.Thread(target=make_backup)
+            worker.start()
+            assert backup_started.wait(2) and backup_copy_finished.wait(5)
+            continue_update.set()
+            worker.join(10)
+            assert not worker.is_alive() and not backup_error
+            deadline = time.monotonic() + 5
+            while repository.get_status().pending_count and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert repository.get_status().pending_count == 0
+            assert repository.get_status().last_successful_upload_at is not None
+            migrated = repository.load_installation()
+            assert migrated.device_id == before.device_id
+            assert (
+                migrated.settings.model_copy(update={"server_url": before.settings.server_url})
+                == before.settings
+            )
+            assert migrated.settings.server_url == "https://upload.invalid"
+            assert migrated.lifecycle.session.descriptor == before.lifecycle.session.descriptor
+            assert migrated.lifecycle.session.collection_enabled
+            assert read_upload_token(data_dir) == saved_token
+            with repository.engine.connect() as connection:
+                saved_rows = connection.execute(
+                    text(
+                        "SELECT record_id, canonical_snapshot, payload_sha256, upload_state, "
+                        "uploaded_at FROM snapshots"
+                    )
+                ).all()
+            original_row = next(row for row in saved_rows if row[0] == str(snapshot.record_id))
+            assert original_row[1] == group.canonical_records[0].decode("utf-8")
+            assert original_row[3] == "uploaded"
+
+            restore(saved, target)
+            restored_engine = create_database(target / "logger.sqlite3")
+            try:
+                restored = LoggerRepository(restored_engine)
+                restored_status = restored.get_status()
+                assert restored.load_installation().device_id == before.device_id
+                with restored_engine.connect() as connection:
+                    rows = connection.execute(
+                        text(
+                            "SELECT record_id, canonical_snapshot, payload_sha256, upload_state, "
+                            "uploaded_at FROM snapshots"
+                        )
+                    ).all()
+                current_by_id = {row[0]: row for row in saved_rows}
+                restored_by_id = {row[0]: row for row in rows}
+                assert set(restored_by_id) <= set(current_by_id)
+                confirmed_ids = {str(item.record_id) for item in group.batch.records}
+                for record_id, restored_row in restored_by_id.items():
+                    current_row = current_by_id[record_id]
+                    assert restored_row[:3] == current_row[:3]
+                    if record_id in confirmed_ids:
+                        assert restored_row[3:] in {
+                            ("pending", None),
+                            ("uploaded", current_row[4]),
+                        }
+                    else:
+                        assert restored_row[3:] == ("pending", None)
+                restored_original = next(row for row in rows if row[0] == str(snapshot.record_id))
+                if restored_original[3] == "pending":
+                    assert restored_original[4] is None
+                    assert restored_status.pending_count == sum(row[3] == "pending" for row in rows)
+                    assert restored_status.last_successful_upload_at is None
+                else:
+                    assert restored_original[3] == "uploaded"
+                    assert restored_original[4] == restored_status.last_successful_upload_at
+                assert read_upload_token(target) == saved_token
+            finally:
+                restored_engine.dispose()
+    finally:
+        engine.dispose()

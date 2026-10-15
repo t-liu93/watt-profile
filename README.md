@@ -6,9 +6,9 @@ Independent Python package for the Watt Profile P1 protocol and contracts.
 
 ## CI and published images
 
-Every push runs the complete synthetic CI suite. Version tags release separate Logger and Server images to GHCR for AMD64 and ARM64, after checks and native image tests pass. See [CI, release tags and Raspberry Pi pull instructions](docs/ci-and-release.md). Logger stores data locally in SQLite; upload remains M4 work.
+Every push runs the synthetic CI suite, including the explicit four-week capacity selector. Version tags release separate Logger and Server images to GHCR for AMD64 and ARM64, after checks and native image tests pass. See [CI, release tags and Raspberry Pi pull instructions](docs/ci-and-release.md). The in-progress M4 source implements upload and backlog recovery; the published `v0.1.0-alpha.1` image remains pre-M4.
 
-The [M4 design](docs/milestone/m4.md) is ready: ten ordered atomic tasks cover LOGGER-001 repair, reliable upload/backlog recovery, integrated verification and the owner's ARM64 Pi 4 continuous 72-hour acceptance. Implementation has not started. See the [MVP roadmap](docs/mvp-roadmap.md) for the revised hardware boundary.
+The [M4 design and owner operations handoff](docs/milestone/m4.md) tracks ten ordered tasks for LOGGER-001 repair, reliable upload/backlog recovery, four-week capacity, integrated verification and the owner's ARM64 Pi 4 continuous 72-hour acceptance. M4 implementation and acceptance are in progress; release and physical acceptance remain separate. See the [MVP roadmap](docs/mvp-roadmap.md) for the hardware boundary.
 
 ## Development environment
 

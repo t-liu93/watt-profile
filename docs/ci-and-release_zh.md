@@ -2,12 +2,12 @@
 
 > [English — source of truth](ci-and-release.md) · **中文**
 
-本交付步骤位于已验收的 [M3](milestone/m3_zh.md) 与 [M4](milestone/m4_zh.md) 之间，为现有 Logger、Server 增加 GitHub Actions 检查和 GHCR 交付。Logger 已用 SQLite 保存快照和待上传状态；自动上传仍属于 M4。M4 设计已就绪，其上传、容量和恢复 CI selector 均为计划新增，并非当前检查。工作流不部署或配置宿主机、树莓派、Nginx 或生产服务。
+本交付步骤位于已验收的 [M3](milestone/m3_zh.md) 与 [M4](milestone/m4_zh.md) 之间，为 Logger、Server 增加 GitHub Actions 检查和 GHCR 交付。当前 M4 源码含上传、四周容量测量和恢复检查；`scripts/ci.sh` 会显式运行容量 selector。已发布的 `v0.1.0-alpha.1` Logger 仍是 M4 前镜像，不含上传器；变更镜像须另行授权发布新版本。工作流不部署或配置宿主机、树莓派、Nginx 或生产服务。详见 [M4 容量及所有者升级流程](milestone/m4_zh.md#所有者-pi-升级与验收交接)。
 
 ## 检查与发布契约
 
 1. 每次分支 push、非版本 tag push、pull request 以及手动触发都会运行 `CI`。`v*` tag 则触发 `Release images`，在构建任何发布镜像前，对解析后的 tag 提交调用同一套完整 CI。版本 tag 不合法时验证失败。
-2. CI 在 Python 3.12 安装 `requirements-dev.lock` 和 Chromium，执行 `bash scripts/ci.sh`：Ruff 代码及格式检查、启用临时 PostgreSQL 的默认测试集、显式 Logger/Server 浏览器测试、Server 开发/独立 Compose 测试、备份恢复验收，以及 Logger Compose/浏览器持久性验收。默认测试中跳过的显式启用项，会在后续指定路径的阶段实际执行。
+2. CI 在 Python 3.12 安装 `requirements-dev.lock` 和 Chromium，执行 `bash scripts/ci.sh`：Ruff 代码及格式检查、启用临时 PostgreSQL 的默认测试集、显式 Logger/Server 浏览器测试、Server 开发/独立 Compose 测试、备份恢复验收、完整合成 241,920 条容量 selector、M4 HTTP 恢复及 Logger/Server Compose/浏览器验收。默认测试中跳过的显式启用项，会在后续指定路径的阶段实际执行。
 3. 发布 tag 必须是严格的 `v主版本.次版本.补丁版本`，可带 SemVer 预发布/构建信息。四个 GitHub 托管原生构建覆盖 Logger/Server × `linux/amd64`/`linux/arm64`，分别使用 `ubuntu-24.04` 和 `ubuntu-24.04-arm`；无需自托管 runner 或注册 QEMU。
 4. 每个候选镜像以 UID/GID 10001，在无网络、无物理设备条件下检查原生模块导入、打包资源/迁移与 CLI 启动。Logger 另外创建并重新打开合成 SQLite 数据，核对身份、Token 及待上传快照保持不变。
 5. 完整 CI 和四个原生镜像冒烟测试全部通过后，具有 `packages: write` 的发布任务才使用内置 `GITHUB_TOKEN`，加载并发布**实际测试过的同一镜像**，随后按摘要合并为每个组件一个多架构镜像。构建任务只有仓库读取权限，无需另设镜像仓库密码。第三方 Action 均固定到提交 SHA。
@@ -48,7 +48,7 @@ docker compose --env-file deploy/logger/.env.local -p watt-logger -f deploy/logg
 docker compose --env-file deploy/logger/.env.local -p watt-logger -f deploy/logger/compose.yml ps --all
 ```
 
-打开 `http://树莓派地址:配置端口`，登录并创建现场、进行读数预览，然后创建暂停状态的部署并启动采集。单纯预览不会存储读数。采集快照保存在命名卷，重启/重建后仍在，并在 M4 上传功能实现前保持待上传。现在填写中心端 URL 也不会触发上传。真实 P1 适配与树莓派资源使用仍需所有者在硬件上走查。
+打开 `http://树莓派地址:配置端口`，登录并创建现场、进行读数预览，然后创建暂停状态的部署并启动采集。单纯预览不会存储读数。采集快照保存在命名卷，重启／重建后仍在。已发布的 alpha.1 镜像不会上传；当前 M4 源码支持上传。真实 P1 适配、存储分配及树莓派资源使用仍需所有者实机走查。安装未来另行授权的 M4 镜像前，遵循 [在线备份、复制到宿主机、升级和回滚步骤](milestone/m4_zh.md#所有者-pi-升级与验收交接)，保留原 Compose project 和数据卷。
 
 普通停止会保留数据库、身份及 Token：
 

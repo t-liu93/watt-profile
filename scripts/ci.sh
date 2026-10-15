@@ -84,6 +84,9 @@ docker compose -p "$logger_project" -f docker-compose.dev.yml \
 # M4 automatic Logger-to-Server delivery and self-owned combined project acceptance.
 "$python_bin" -m pytest tests/test_m4_pipeline.py -q -o cache_dir="$ci_root/pytest-cache" \
     --basetemp="$ci_root/m4-pipeline"
+export WATT_TEST_M4_CAPACITY=1
+"$python_bin" -m pytest tests/integration/test_logger_capacity.py -q \
+    -o cache_dir="$ci_root/pytest-cache" --basetemp="$ci_root/m4-capacity"
 export WATT_TEST_M4_COMPOSE=1
 export WATT_TEST_COMPOSE_PROJECT="watt-m4-ci-$nonce"
 export WATT_DEV_IMAGE_TAG="$WATT_TEST_COMPOSE_PROJECT"

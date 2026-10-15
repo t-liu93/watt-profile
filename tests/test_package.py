@@ -96,7 +96,13 @@ assert root.joinpath('server/static/server.js').is_file()
 assert root.joinpath('server/static/theme.js').is_file()
 assert root.joinpath('server/static/login.js').is_file()
 assert root.joinpath('server/templates/login.html').is_file()
+assert root.joinpath('logger/capacity.py').is_file()
+assert root.joinpath('cli/logger_capacity.py').is_file()
 import watt_profile.server
+import socket
+def deny_network(*args, **kwargs):
+    raise AssertionError('network disabled')
+socket.socket.connect = deny_network
 print(root)
 """
     result = subprocess.run(
