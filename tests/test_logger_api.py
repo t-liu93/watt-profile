@@ -21,6 +21,7 @@ from watt_profile.logger.app import PREFIX, create_app
 from watt_profile.logger.auth import COOKIE, MAX_AGE, OperatorAuth
 from watt_profile.logger.bootstrap import InstanceBusy, installation_lock
 from watt_profile.logger.settings import LoggerSettings
+from watt_profile.logger.upload import TransportResult
 
 PASSWORD = "temporary-operator-password"
 FRAME = Path("tests/fixtures/p1/profile/single_phase.telegram").read_bytes()
@@ -77,6 +78,49 @@ class Factory:
         return port
 
 
+class IsolatedTransport:
+    """Configured API fixtures never open real sockets."""
+
+    async def send(self, origin, token, group):
+        return TransportResult(0, error_code="upload_network_error")
+
+    async def aclose(self):
+        self.closed = True
+
+
+class ConfirmingTransport:
+    def __init__(self, *, hold=False):
+        self.groups = []
+        self.entered = asyncio.Event()
+        self.release = asyncio.Event()
+        self.hold = hold
+        self.closed = False
+        self.cancelled = False
+
+    async def send(self, origin, token, group):
+        self.groups.append((origin, token, group))
+        self.entered.set()
+        if self.hold:
+            try:
+                await self.release.wait()
+            except asyncio.CancelledError:
+                self.cancelled = True
+                raise
+        from watt_profile.contracts.upload import UploadConfirmation
+
+        return TransportResult(
+            200,
+            confirmation=UploadConfirmation(
+                schema_version=1,
+                device_id=group.batch.device_id,
+                confirmed_record_ids=tuple(record.record_id for record in group.batch.records),
+            ),
+        )
+
+    async def aclose(self):
+        self.closed = True
+
+
 @pytest.fixture
 def setup(tmp_path, monkeypatch):
     password = tmp_path / "operator-password"
@@ -97,13 +141,19 @@ def setup(tmp_path, monkeypatch):
 
 
 @asynccontextmanager
-async def client_for(setup, *, secure=False):
+async def client_for(setup, *, secure=False, upload_transport=None):
     settings, factory, clock, auth_time = setup
     if secure:
         from dataclasses import replace
 
         settings = replace(settings, cookie_secure=True)
-    app = create_app(settings, serial_factory=factory, clock=clock, auth_clock=lambda: auth_time[0])
+    app = create_app(
+        settings,
+        serial_factory=factory,
+        clock=clock,
+        auth_clock=lambda: auth_time[0],
+        upload_transport_factory=lambda settings: upload_transport or IsolatedTransport(),
+    )
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(
@@ -247,6 +297,7 @@ def test_login_throttle_generic_errors_and_forwarded_headers(setup):
         ("/storage/resolve", {}),
         ("/registration-summary", {}),
         ("/cleanup", {}),
+        ("/upload/retry", {}),
         (f"/sessions/{uuid4()}/start", {}),
         (f"/sessions/{uuid4()}/pause", {}),
         (f"/sessions/{uuid4()}/complete", {}),
@@ -300,6 +351,327 @@ def test_csrf_login_logout_patch_and_origin(setup):
             assert (await client.patch(PREFIX + f"/sites/{uuid4()}", json={})).status_code == 403
             assert (await client.post("/logout", data={"csrf_token": "wrong"})).status_code == 403
             assert (await client.get(PREFIX + "/status")).status_code == 200
+
+    asyncio.run(check())
+
+
+def test_upload_retry_is_csrf_protected_and_status_tracks_saved_origin(setup):
+    async def check():
+        async with client_for(setup) as (app, client):
+            await login(client)
+            status = (await client.get(PREFIX + "/status")).json()["data"]
+            assert status["upload_mode"] == "unconfigured"
+            assert status["upload"]["state"] == "idle"
+            assert (await client.post(PREFIX + "/upload/retry", json={})).status_code == 403
+            csrf = await headers(client)
+            retry = await client.post(PREFIX + "/upload/retry", json={}, headers=csrf)
+            assert retry.status_code == 202
+            assert retry.json()["data"]["upload"]["state"] in {"idle", "sending"}
+            saved = await client.patch(
+                PREFIX + "/config",
+                json={"expected_session_id": None, "server_url": "https://upload.invalid"},
+                headers=csrf,
+            )
+            assert saved.status_code == 200
+            status = (await client.get(PREFIX + "/status")).json()["data"]
+            assert status["upload_mode"] == "enabled"
+            assert status["upload"]["state"] in {"idle", "sending", "backoff"}
+            assert status["logger"]["last_successful_upload_at"] is None
+            assert status["logger"]["pending_count"] == 0
+            assert isinstance(app.state.upload_transport, IsolatedTransport)
+
+    asyncio.run(check())
+
+
+def test_lifespan_owns_upload_worker_transport_database_and_lock(setup):
+    async def check():
+        settings, factory, clock, auth_time = setup
+        app = create_app(
+            settings,
+            serial_factory=factory,
+            clock=clock,
+            auth_clock=lambda: auth_time[0],
+            upload_transport_factory=lambda _: IsolatedTransport(),
+        )
+        async with app.router.lifespan_context(app):
+            worker = app.state.upload_task
+            transport = app.state.upload_transport
+            assert not worker.done()
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://logger.test"
+            ) as client:
+                assert (await client.get("/health/ready")).json() == {"ready": True}
+        assert worker.done()
+        assert transport.closed
+        with installation_lock(settings.data_dir):
+            assert app.state.repository.load_installation() is not None
+
+    asyncio.run(check())
+
+
+def test_first_origin_drains_paused_backlog_and_keeps_api_responsive(setup):
+    async def check():
+        transport = ConfirmingTransport(hold=True)
+        async with client_for(setup, upload_transport=transport) as (app, client):
+            await login(client)
+            csrf = await headers(client)
+            await client.patch(
+                PREFIX + "/config",
+                json={"expected_session_id": None, "serial_path": "/temporary-fake-serial"},
+                headers=csrf,
+            )
+            deployed, _ = await deploy(client, csrf)
+            sid = deployed.json()["data"]["logger"]["session_id"]
+            assert (
+                await client.post(PREFIX + f"/sessions/{sid}/start", json={}, headers=csrf)
+            ).status_code == 200
+            await eventually(lambda: setup[1].ports)
+            setup[1].ports[-1].chunks.put(FRAME)
+            await eventually(
+                lambda: app.state.runtime.get_status()["latest_live_reading"] is not None
+            )
+            pause = asyncio.create_task(
+                client.post(PREFIX + f"/sessions/{sid}/pause", json={}, headers=csrf)
+            )
+            await eventually(
+                lambda: app.state.runtime.operations.state.collection_state == "stopping"
+            )
+            setup[2].advance(10)
+            assert (await pause).status_code == 200
+            completed = await client.post(
+                PREFIX + f"/sessions/{sid}/complete", json={}, headers=csrf
+            )
+            assert completed.status_code == 200
+            assert app.state.repository.get_status().pending_count == 1
+
+            saved = await client.patch(
+                PREFIX + "/config",
+                json={"expected_session_id": sid, "server_url": "https://upload.invalid"},
+                headers=csrf,
+            )
+            assert saved.status_code == 200
+            await asyncio.wait_for(transport.entered.wait(), 1)
+            assert transport.groups[0][0] == "https://upload.invalid"
+            assert transport.groups[0][1]
+            assert app.state.runtime.operations.state.collection_state == "idle"
+            assert app.state.repository.load_lifecycle().session.state == "completed"
+            # Even while a credential-bearing HTTP exchange is held, local status responds.
+            status = await asyncio.wait_for(client.get(PREFIX + "/status"), 0.5)
+            assert status.status_code == 200
+            assert status.json()["data"]["logger"]["pending_count"] == 1
+            assert "token" not in status.text
+            retry1 = await client.post(PREFIX + "/upload/retry", json={}, headers=csrf)
+            retry2 = await client.post(PREFIX + "/upload/retry", json={}, headers=csrf)
+            assert retry1.status_code == retry2.status_code == 202
+            assert "scheduled" not in retry1.text
+            switched = await client.patch(
+                PREFIX + "/config",
+                json={"expected_session_id": sid, "server_url": "https://other.invalid"},
+                headers=csrf,
+            )
+            assert switched.status_code == 409
+            assert switched.json()["error"]["code"] == "pending_uploads_prevent_server_change"
+            transport.release.set()
+            await eventually(lambda: app.state.repository.get_status().pending_count == 0)
+            final = (await client.get(PREFIX + "/status")).json()["data"]
+            assert final["logger"]["last_successful_upload_at"] is not None
+            assert final["logger"]["pending_count"] == 0
+            assert final["upload"]["state"] in {"idle", "sending"}
+            sessions = (await client.get(PREFIX + "/sessions")).json()["data"]["items"]
+            assert sessions[0]["upload_error"] is None
+        assert transport.closed
+
+    asyncio.run(check())
+
+
+def test_unexpected_upload_worker_failure_is_fixed_and_fails_readiness(setup):
+    async def check():
+        class FailingScheduler:
+            observation = type(
+                "Observation",
+                (),
+                {
+                    "state": "failed",
+                    "global_error": None,
+                    "next_attempt_at": None,
+                    "blocked_group_count": 0,
+                },
+            )()
+            blocked_group_errors = {}
+
+            async def run(self):
+                raise RuntimeError("private failure text")
+
+            def stop(self):
+                pass
+
+            def retry(self):
+                pass
+
+        app = create_app(
+            setup[0],
+            serial_factory=setup[1],
+            clock=setup[2],
+            auth_clock=lambda: setup[3][0],
+            upload_transport_factory=lambda _: IsolatedTransport(),
+            upload_scheduler_factory=lambda *args, **kwargs: FailingScheduler(),
+        )
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://logger.test"
+            ) as client:
+                await eventually(lambda: app.state.upload_worker_error == "upload_worker_failed")
+                ready = await client.get("/health/ready")
+                assert ready.status_code == 503
+                assert app.state.runtime.operations.state.collection_state == "idle"
+                await login(client)
+                status = (await client.get(PREFIX + "/status")).json()["data"]
+                assert status["upload"]["state"] == "failed"
+                assert status["upload"]["global_error"] == "upload_worker_failed"
+                assert status["logger"]["last_upload_error"] == "upload_worker_failed"
+                assert "Traceback" not in str(status)
+
+    asyncio.run(check())
+
+
+def test_session_page_maps_uuid_group_block_to_upload_error(setup):
+    async def check():
+        async with client_for(setup) as (app, client):
+            await login(client)
+            csrf = await headers(client)
+            await deploy(client, csrf)
+            page = app.state.repository.page_sessions(0, 10)
+            item = page["items"][0]
+            key = (
+                item["device_id"],
+                item["site_id"],
+                item["session_id"],
+                item["source_id"],
+                item["measurement_point_id"],
+            )
+            app.state.upload_scheduler._blocked[key] = "upload_http_rejected"
+            response = await client.get(PREFIX + "/sessions")
+            assert response.status_code == 200
+            assert response.json()["data"]["items"][0]["upload_error"] == "upload_http_rejected"
+
+    asyncio.run(check())
+
+
+def test_lifespan_releases_runtime_database_and_lock_when_upload_setup_fails(setup):
+    async def check():
+        transport = IsolatedTransport()
+
+        def fail_scheduler(*args, **kwargs):
+            raise RuntimeError("synthetic scheduler construction fault")
+
+        app = create_app(
+            setup[0],
+            serial_factory=setup[1],
+            clock=setup[2],
+            auth_clock=lambda: setup[3][0],
+            upload_transport_factory=lambda _: transport,
+            upload_scheduler_factory=fail_scheduler,
+        )
+        with pytest.raises(RuntimeError):
+            async with app.router.lifespan_context(app):
+                pytest.fail("lifespan unexpectedly started")
+        assert transport.closed
+        assert app.state.runtime._closed
+        with installation_lock(setup[0].data_dir):
+            pass
+
+    asyncio.run(check())
+
+
+def test_transport_close_error_does_not_skip_runtime_or_database_disposal(setup):
+    async def check():
+        class CloseFailureTransport(IsolatedTransport):
+            async def aclose(self):
+                self.closed = True
+                raise RuntimeError("synthetic close fault")
+
+        transport = CloseFailureTransport()
+        app = create_app(
+            setup[0],
+            serial_factory=setup[1],
+            clock=setup[2],
+            auth_clock=lambda: setup[3][0],
+            upload_transport_factory=lambda _: transport,
+        )
+        with pytest.raises(RuntimeError, match="synthetic close fault"):
+            async with app.router.lifespan_context(app):
+                pass
+        assert transport.closed
+        assert app.state.runtime._closed
+        with installation_lock(setup[0].data_dir):
+            pass
+
+    asyncio.run(check())
+
+
+def test_shutdown_cancels_inflight_upload_before_database_and_lock_disposal(setup):
+    async def check():
+        transport = ConfirmingTransport(hold=True)
+        async with client_for(setup, upload_transport=transport) as (app, client):
+            await login(client)
+            csrf = await headers(client)
+            await client.patch(
+                PREFIX + "/config",
+                json={"expected_session_id": None, "serial_path": "/temporary-fake-serial"},
+                headers=csrf,
+            )
+            deployed, _ = await deploy(client, csrf)
+            sid = deployed.json()["data"]["logger"]["session_id"]
+            await client.post(PREFIX + f"/sessions/{sid}/start", json={}, headers=csrf)
+            await eventually(lambda: setup[1].ports)
+            setup[1].ports[-1].chunks.put(FRAME)
+            await eventually(
+                lambda: app.state.runtime.get_status()["latest_live_reading"] is not None
+            )
+            pause = asyncio.create_task(
+                client.post(PREFIX + f"/sessions/{sid}/pause", json={}, headers=csrf)
+            )
+            await eventually(
+                lambda: app.state.runtime.operations.state.collection_state == "stopping"
+            )
+            setup[2].advance(10)
+            assert (await pause).status_code == 200
+            await client.patch(
+                PREFIX + "/config",
+                json={"expected_session_id": sid, "server_url": "https://upload.invalid"},
+                headers=csrf,
+            )
+            await asyncio.wait_for(transport.entered.wait(), 1)
+            worker = app.state.upload_task
+            runtime = app.state.runtime
+        assert worker.done() and worker.cancelled()
+        assert transport.cancelled and transport.closed
+        assert runtime._closed
+        with installation_lock(setup[0].data_dir):
+            assert runtime.repository.load_installation() is not None
+
+    asyncio.run(check())
+
+
+def test_fatal_upload_storage_failure_stops_collection_and_preserves_blocks(setup):
+    async def check():
+        async with client_for(setup) as (app, client):
+            await eventually(lambda: app.state.upload_scheduler.observation.state == "idle")
+            app.state.repository.update_blocks("storage_full", blocked=True)
+            app.state.runtime.operations.state = app.state.repository.load_lifecycle()
+            original = app.state.repository.load_installation
+
+            def corrupted():
+                raise RuntimeError("database disk image is malformed")
+
+            app.state.repository.load_installation = corrupted
+            app.state.upload_scheduler.wake()
+            await eventually(lambda: app.state.runtime._fatal_storage)
+            assert app.state.runtime.runtime_error == "storage_fatal"
+            assert "storage_full" in app.state.runtime.operations.state.persisted_blocks
+            ready = await client.get("/health/ready")
+            assert ready.status_code == 503
+            app.state.repository.load_installation = original
 
     asyncio.run(check())
 
@@ -613,7 +985,7 @@ def test_preview_and_drain_leave_status_responsive(setup):
             status = (await client.get(PREFIX + "/status")).json()["data"]
             assert status["logger"]["pending_count"] == 1
             assert status["active_session_latest_received_at"] is not None
-            assert status["upload_mode"] == "not_implemented"
+            assert status["upload_mode"] == "unconfigured"
             assert (
                 await client.post(
                     PREFIX + "/cleanup", json={"session_ids": [sid], "confirm": True}, headers=csrf

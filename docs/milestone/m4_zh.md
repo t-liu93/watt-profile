@@ -2,7 +2,7 @@
 
 > [English — source of truth](m4.md) · **中文**
 
-状态：实施中，2026-10-15。M1–M3 已验收。M4-01–M4-05 已通过自动检查与独立评审；M4-06–M4-10 仍为计划任务。LOGGER-001 代码已验证，实机和发布仍待完成。业主报告现有 ARM64 Raspberry Pi 4 持续离线采集、积累待上传记录，尚未配置服务器 origin；代理未检查设备或其数据。
+状态：实施中，2026-10-15。M1–M3 已验收。M4-01–M4-06 已通过自动检查与独立评审；M4-07–M4-10 仍为计划任务。LOGGER-001 代码已验证，实机和发布仍待完成。业主报告现有 ARM64 Raspberry Pi 4 持续离线采集、积累待上传记录，尚未配置服务器 origin；代理未检查设备或其数据。
 
 ## 1. 目标与 Agent 使用方式
 
@@ -291,9 +291,9 @@ M4-09–10 在交给所有者前须用可丢弃安装验证精确命令。遵守
 
 | 必需结果 | 当前证据 |
 | --- | --- |
-| M4 设计及双语契约／任务卡 | 2026-10-15 设计就绪，实现未开始 |
-| LOGGER-001 runtime／API／浏览器／容器修复 | 待执行，问题仍开放 |
-| 自动上传器、组隔离及精确确认 | 待执行 |
+| M4 设计及双语契约／任务卡 | 设计就绪；2026-10-15 已完成 M4-01–M4-05 自动验收 |
+| LOGGER-001 runtime／API／浏览器／容器修复 | M4-01–02 代码检查与独立评审通过；实机／发布待完成 |
+| 自动上传器、组隔离及精确确认 | 传输／调度器／应用／API 检查和独立评审通过；UI 集成待完成 |
 | 端到端 HTTP／Compose 恢复、查询／CSV 和完整 CI | 待执行 |
 | 四周合成容量及所有者足够的存储分配 | 待执行 |
 | 升级／备份／恢复及 AMD64／ARM64 镜像检查 | 待执行 |
@@ -314,3 +314,5 @@ M4-09–10 在交给所有者前须用可丢弃安装验证精确命令。遵守
 - **M4-04 — 自动验收，2026-10-15：** 已实现连接复用、整次网络截止时间、受限原始响应流、严格确认/错误解码和合成输入专用内部路由。HTTPX 提升为运行依赖，两份锁真实重新生成（dev lock 内容不变）。原选择器 **87 passed**，Ruff lint/format、diff check 通过。全新独立评审通过，并独立检查 TLS/proxy/redirect/retry 默认值、连接限制、取消传播和流关闭、IPv6/端口及 `pip check`。仅使用 fake transport，无调度/应用激活、真实网络或容器验证。
 
 - **M4-05 — 自动验收，2026-10-15：** 已实现单航班调度、确认后连续补传、10 秒空闲扫描、单调退避/Retry-After、全局/组阻断、保留的 413 组限额、边界合并 Retry 与确认原子写入。Uploader/storage **91 passed**；全新独立评审另跑 transport/contract **75 passed**，Ruff lint/format 与 diff check 通过。临时 SQLite/假传输验证歧义响应保持原批次、存储失败/checkpoint、损坏停止、取消等待已开始 DB 操作及合成 reader 在 HTTP 等待期间继续入库。异步跨线程测试需权限提升以绕过沙箱自唤醒限制；未连接真实网络/设备。应用/API/容器激活留给后续任务。
+
+- **M4-06 — 自动验收，2026-10-15：** lifespan 已拥有上传任务/HTTP 资源，已接入 typed `StatusView.upload`、会话组错误、持久确认 checkpoint、受认证/CSRF 保护的 `202 {data: StatusView}` Retry 及配置提交后唤醒；M1 `LoggerStatus` 未改变。API/uploader/M2 pipeline **67 passed**，Ruff lint/format、diff check 通过。全新独立评审通过，额外两项隔离探针验证意外取消不停止健康采集、致命存储停止并释放串口。覆盖首次 origin 的 completed backlog 自动确认、网络等待状态响应、pending-origin 拒绝、worker readiness 及关闭/构造/HTTP close 异常清理。仅假传输/串口与临时 SQLite；浏览器/容器留待后续。

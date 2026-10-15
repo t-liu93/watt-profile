@@ -30,6 +30,7 @@ from watt_profile.logger.settings import LoggerSettings
 from watt_profile.logger.storage.database import create_database, migrate
 from watt_profile.logger.storage.repository import LocalSettings, LoggerRepository, Site
 from watt_profile.logger.synthetic import SyntheticSerialFactory
+from watt_profile.logger.upload import UploadScheduler, UploadTransport
 
 PREFIX = "/api/local/v1"
 
@@ -67,15 +68,23 @@ class CleanupCommand(DomainModel):
         return self
 
 
+class UploadObservationView(DomainModel):
+    state: Literal["idle", "sending", "backoff", "blocked", "stopping", "failed"]
+    next_attempt_at: UtcTime | None
+    global_error: StrictStr | None
+    blocked_group_count: StrictInt
+
+
 class StatusView(DomainModel):
     logger: LoggerStatus
     input_mode: Literal["serial", "synthetic"]
-    upload_mode: Literal["not_implemented"]
+    upload_mode: Literal["enabled", "unconfigured"]
     persisted_blocks: tuple[PersistedBlock, ...]
     active_session_state: Literal["open", "completed"] | None
     latest_live_reading: ReadingView | None
     active_session_latest_received_at: UtcTime | None
     runtime_error: StrictStr | None
+    upload: UploadObservationView
 
 
 class SessionView(DomainModel):
@@ -91,6 +100,7 @@ class SessionView(DomainModel):
     total_count: StrictInt
     pending_count: StrictInt
     eligible_uploaded_count: StrictInt
+    upload_error: StrictStr | None = None
 
 
 class SitePage(DomainModel):
@@ -193,7 +203,26 @@ async def form_values(request):
     return {k: v[0] for k, v in values.items()}
 
 
-def create_app(settings: LoggerSettings, *, serial_factory=None, clock=None, auth_clock=None):
+async def finish_thread(function, *args):
+    """Wait for started database/runtime work even if its caller is cancelled."""
+    operation = asyncio.create_task(asyncio.to_thread(function, *args))
+    try:
+        return await asyncio.shield(operation)
+    except asyncio.CancelledError:
+        await asyncio.shield(operation)
+        raise
+
+
+def create_app(
+    settings: LoggerSettings,
+    *,
+    serial_factory=None,
+    clock=None,
+    auth_clock=None,
+    upload_transport_factory=None,
+    upload_scheduler_factory=None,
+    upload_clock=None,
+):
     """Create without side effects. Lifespan owns the installation lock and resources."""
     templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
@@ -203,6 +232,11 @@ def create_app(settings: LoggerSettings, *, serial_factory=None, clock=None, aut
         app.state.ready = False
         app.state.auth = None
         app.state.runtime = None
+        app.state.upload_scheduler = None
+        app.state.upload_task = None
+        app.state.upload_worker_error = None
+        app.state.upload_stopping = False
+        app.state.upload_transport = None
 
         def initialize():
             set_private_umask()
@@ -237,27 +271,75 @@ def create_app(settings: LoggerSettings, *, serial_factory=None, clock=None, aut
             runtime.restore_intent()
 
         try:
-            await asyncio.to_thread(initialize)
+            await finish_thread(initialize)
+            app.state.loop = asyncio.get_running_loop()
+            transport = (upload_transport_factory or UploadTransport)(settings)
+            app.state.upload_transport = transport
+
+            async def upload_fatal(code):
+                if code == "storage_error" and app.state.runtime is not None:
+                    await finish_thread(app.state.runtime.mark_external_storage_fatal)
+
+            scheduler_args = {}
+            if upload_clock is not None:
+                scheduler_args.update(monotonic=upload_clock.monotonic, utcnow=upload_clock.utcnow)
+            scheduler = (upload_scheduler_factory or UploadScheduler)(
+                app.state.repository,
+                transport,
+                lambda: read_upload_token(settings.data_dir),
+                on_fatal=upload_fatal,
+                **scheduler_args,
+            )
+            app.state.upload_scheduler = scheduler
+
+            async def run_upload():
+                try:
+                    await scheduler.run()
+                except asyncio.CancelledError:
+                    if not app.state.upload_stopping:
+                        app.state.upload_worker_error = "upload_worker_failed"
+                    raise
+                except Exception:
+                    app.state.upload_worker_error = "upload_worker_failed"
+                else:
+                    if not app.state.upload_stopping and not getattr(scheduler, "_fatal", False):
+                        app.state.upload_worker_error = "upload_worker_failed"
+
+            app.state.upload_task = asyncio.create_task(run_upload(), name="logger-upload")
             app.state.ready = True
             yield
         finally:
             app.state.ready = False
-            if app.state.auth:
-                app.state.auth.clear()
-            runtime = app.state.runtime
+            app.state.upload_stopping = True
+            scheduler = app.state.upload_scheduler
+            worker = app.state.upload_task
+            if scheduler is not None:
+                scheduler.stop()
+            if worker is not None:
+                if not worker.done():
+                    worker.cancel()
+                await asyncio.gather(worker, return_exceptions=True)
+            transport = getattr(app.state, "upload_transport", None)
             try:
-                if runtime is not None:
-                    # Let an already admitted command finish before the shutdown drain.
-                    while True:
-                        try:
-                            await asyncio.to_thread(runtime.shutdown)
-                            break
-                        except ValueError as exc:
-                            if exc.args != ("busy",):
-                                raise
-                            await asyncio.sleep(0.05)
+                if transport is not None:
+                    await transport.aclose()
             finally:
-                stack.close()
+                if app.state.auth:
+                    app.state.auth.clear()
+                runtime = app.state.runtime
+                try:
+                    if runtime is not None:
+                        # Let an already admitted command finish before the shutdown drain.
+                        while True:
+                            try:
+                                await finish_thread(runtime.shutdown)
+                                break
+                            except ValueError as exc:
+                                if exc.args != ("busy",):
+                                    raise
+                                await asyncio.sleep(0.05)
+                finally:
+                    stack.close()
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.ready = False
@@ -339,7 +421,32 @@ def create_app(settings: LoggerSettings, *, serial_factory=None, clock=None, aut
         return error("storage_error", 507)
 
     def status():
-        return StatusView.model_validate(app.state.runtime.get_status())
+        result = app.state.runtime.get_status()
+        installation = app.state.repository.load_installation()
+        result["upload_mode"] = "enabled" if installation.settings.server_url else "unconfigured"
+        scheduler = app.state.upload_scheduler
+        if scheduler is not None:
+            observation = scheduler.observation
+            worker_failed = app.state.upload_worker_error is not None
+            result["logger"] = result["logger"].model_copy(
+                update={
+                    "last_upload_error": app.state.upload_worker_error or observation.global_error
+                }
+            )
+            result["upload"] = UploadObservationView(
+                state="failed" if worker_failed else observation.state,
+                next_attempt_at=observation.next_attempt_at,
+                global_error=app.state.upload_worker_error or observation.global_error,
+                blocked_group_count=observation.blocked_group_count,
+            )
+        else:
+            result["upload"] = UploadObservationView(
+                state="failed" if app.state.upload_worker_error else "idle",
+                next_attempt_at=None,
+                global_error=app.state.upload_worker_error,
+                blocked_group_count=0,
+            )
+        return StatusView.model_validate(result)
 
     def final(result):
         if result.result not in {"ok", "already_started", "already_stopped", "already_completed"}:
@@ -356,7 +463,11 @@ def create_app(settings: LoggerSettings, *, serial_factory=None, clock=None, aut
         if healthy:
             try:
                 app.state.repository.load_installation()
-                healthy = not app.state.runtime._fatal_storage
+                worker = app.state.upload_task
+                healthy = not app.state.runtime._fatal_storage and not (
+                    app.state.upload_worker_error is not None
+                    or (worker is not None and worker.done() and not app.state.upload_stopping)
+                )
             except Exception:
                 healthy = False
         return JSONResponse({"ready": healthy}, status_code=200 if healthy else 503)
@@ -445,7 +556,14 @@ def create_app(settings: LoggerSettings, *, serial_factory=None, clock=None, aut
 
     @app.patch(PREFIX + "/config", response_model=DataEnvelope[LocalSettings])
     def save_config(command: SettingsEdit):
-        return data(app.state.runtime.patch_settings(command))
+        result = app.state.runtime.patch_settings(command)
+        app.state.loop.call_soon_threadsafe(app.state.upload_scheduler.wake)
+        return data(result)
+
+    @app.post(PREFIX + "/upload/retry", status_code=202, response_model=DataEnvelope[StatusView])
+    async def retry_upload(command: EmptyCommand):
+        app.state.loop.call_soon(app.state.upload_scheduler.retry)
+        return data(await asyncio.to_thread(status))
 
     @app.get(PREFIX + "/sites", response_model=DataEnvelope[SitePage])
     def sites(
@@ -523,7 +641,26 @@ def create_app(settings: LoggerSettings, *, serial_factory=None, clock=None, aut
     def sessions(
         offset: Annotated[int, Query(ge=0)] = 0, limit: Annotated[int, Query(ge=1, le=100)] = 50
     ):
-        return data(SessionPage.model_validate(app.state.repository.page_sessions(offset, limit)))
+        scheduler = app.state.upload_scheduler
+        blocked = (
+            {
+                tuple(str(part) for part in key): value
+                for key, value in scheduler.blocked_group_errors.items()
+            }
+            if scheduler is not None
+            else {}
+        )
+        page = app.state.repository.page_sessions(offset, limit)
+        for item in page["items"]:
+            key = (
+                item["device_id"],
+                item["site_id"],
+                item["session_id"],
+                item["source_id"],
+                item["measurement_point_id"],
+            )
+            item["upload_error"] = blocked.get(tuple(str(part) for part in key))
+        return data(SessionPage.model_validate(page))
 
     @app.post(PREFIX + "/cleanup", response_model=DataEnvelope[CleanupView])
     def cleanup(command: CleanupCommand):

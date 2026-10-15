@@ -489,6 +489,18 @@ class LoggerRuntime:
         self.runtime_error = "storage_fatal"
         self._change(collection_state="idle", stop_action=None, next_site_id=None)
 
+    def mark_external_storage_fatal(self):
+        """Coordinate a fatal repository failure from the independent uploader."""
+        self._commands.acquire()
+        try:
+            with self._state:
+                self._mark_storage_fatal()
+                # Preserve durable/unsaved block reasons while stopping and joining
+                # the collection owners through the same cleanup path as storage faults.
+                self._block(None)
+        finally:
+            self._commands.release()
+
     def _storage_failure(self, exc):
         if is_database_corruption(exc):
             self._mark_storage_fatal()
