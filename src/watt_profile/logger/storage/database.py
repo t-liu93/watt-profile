@@ -6,10 +6,12 @@ import json
 import re
 from datetime import datetime
 from decimal import Decimal
+from ipaddress import ip_address
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 from uuid import UUID
 
+import idna
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import Engine, create_engine, event
@@ -34,6 +36,33 @@ def valid_origin(value: object) -> bool:
         )
     except ValueError:
         return False
+
+
+def origin_identity(value: str | None) -> tuple[str, str, int | None] | None:
+    """Return the comparison identity without changing the saved origin string."""
+    if value is None:
+        return None
+    if not valid_origin(value):
+        raise ValueError("invalid_local_settings")
+    url = urlsplit(value)
+    host = url.hostname
+    try:
+        host = ip_address(host).compressed
+    except ValueError:
+        # Mirror HTTPX's encode_host split: ASCII reg-names are lowercased and
+        # quoted with HTTPX's safe set, while only non-ASCII hosts use IDNA.
+        if host.isascii():
+            host = quote(host.lower(), safe="!$&'()*+,;=\"`{}%|\\")
+        else:
+            try:
+                host = idna.encode(host.lower()).decode("ascii")
+            except (idna.IDNAError, UnicodeError):
+                # M1 accepts these origins as settings even though HTTPX/IDNA
+                # cannot route them. Keep their literal host spelling in a
+                # namespace that no normalized transport host can occupy.
+                host = "\x00unencodable:" + host
+    port = url.port or (443 if url.scheme == "https" else 80)
+    return url.scheme.lower(), host, port
 
 
 def _uuid(value, version):

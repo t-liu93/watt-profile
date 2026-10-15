@@ -307,6 +307,7 @@ def create_app(settings: LoggerSettings, *, serial_factory=None, clock=None, aut
             "busy",
             "blocked",
             "stale_session",
+            "pending_uploads_prevent_server_change",
             "same_site",
             "switch_confirmation_required",
             "session_completed",

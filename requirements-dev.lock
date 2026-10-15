@@ -40,6 +40,7 @@ idna==3.20
     # via
     #   anyio
     #   httpx
+    #   watt-profile (pyproject.toml)
 iniconfig==2.3.1
     # via pytest
 jinja2==3.1.6

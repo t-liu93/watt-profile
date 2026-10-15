@@ -5,11 +5,13 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
+import httpx
 import pytest
 from sqlalchemy import event, func, insert, select, text, update
 from sqlalchemy.exc import IntegrityError
@@ -23,7 +25,7 @@ from watt_profile.contracts.upload import (
 )
 from watt_profile.logger.bootstrap import installation_lock
 from watt_profile.logger.storage import schema as db
-from watt_profile.logger.storage.database import create_database, migrate
+from watt_profile.logger.storage.database import create_database, migrate, origin_identity
 from watt_profile.logger.storage.repository import LocalSettings, LoggerRepository, Site
 
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
@@ -120,6 +122,178 @@ def test_canonical_roundtrip_restart_conflict_and_concurrent_duplicate(repositor
     status = repo.get_status()
     assert status.pending_count == 1
     assert status.pending_bytes == len(canonical_snapshot_bytes(snapshot))
+
+
+def test_pending_group_exclusion_preserves_oldest_group_bytes_and_limits(repository):
+    repo = repository
+    old_data = record(repo).model_dump(mode="json")
+    old_data["record_id"] = "00000000-0000-4000-8000-000000000001"
+    old = Snapshot.model_validate(old_data)
+    repo.insert_snapshot(old)
+    old_key = (
+        old.device_id,
+        old.site_id,
+        old.session_id,
+        old.source_id,
+        old.measurement_point_id,
+    )
+    state = repo.load_lifecycle()
+    closed = complete_session(state, state.session.descriptor.session_id, NOW).lifecycle
+    old_session_id = state.session.descriptor.session_id
+    repo.commit_deployment_change(old_session_id, closed)
+    site = repo.save_site(Site(site_id=uuid4()))
+    repo.commit_deployment_change(
+        old_session_id,
+        new_deployment(repo.load_lifecycle(), site.site_id, NOW + timedelta(seconds=1)).lifecycle,
+    )
+    new_data = record(repo).model_dump(mode="json")
+    new_data["record_id"] = "00000000-0000-4000-8000-000000000002"
+    new = Snapshot.model_validate(new_data)
+    repo.insert_snapshot(new)
+    selected = repo.select_pending_group(excluded_groups=(old_key,), limit=1)
+    assert selected.batch.records == (new,)
+    assert selected.canonical_records == (canonical_snapshot_bytes(new),)
+    assert len(selected.body) <= 4_194_304
+    assert repo.select_pending_group(limit=1).batch.records == (old,)
+
+
+def test_pending_group_same_reception_tie_and_single_record_byte_bound(repository):
+    repo = repository
+    common = record(repo).model_dump(mode="json")
+    common["received_at"] = "2026-01-01T00:00:00.000000Z"
+    earlier, later = common.copy(), common.copy()
+    earlier["record_id"] = "00000000-0000-4000-8000-000000000001"
+    later["record_id"] = "00000000-0000-4000-8000-000000000002"
+    first, second = Snapshot.model_validate(earlier), Snapshot.model_validate(later)
+    repo.insert_snapshot(second)
+    repo.insert_snapshot(first)
+    selected = repo.select_pending_group(limit=1)
+    assert selected.batch.records == (first,)
+    with pytest.raises(ValueError, match="^batch_too_large$"):
+        repo.select_pending_group(limit=1, byte_limit=len(selected.body) - 1)
+
+
+def test_origin_change_gate_is_atomic_and_uses_effective_origin(repository):
+    repo = repository
+    repo.insert_snapshot(record(repo))
+    first = LocalSettings(server_url="https://Example.test")
+    repo.save_settings(first)
+    equivalent = LocalSettings(server_url="https://example.test:443")
+    repo.save_settings(equivalent)
+    attempted = LocalSettings(server_url="http://other.test", serial_path="changed-port")
+    with pytest.raises(ValueError, match="^pending_uploads_prevent_server_change$"):
+        repo.save_settings(attempted)
+    assert repo.load_installation().settings == equivalent
+    with pytest.raises(ValueError, match="^pending_uploads_prevent_server_change$"):
+        repo.save_settings(LocalSettings())
+    assert repo.load_installation().settings == equivalent
+
+    group = repo.select_pending_group()
+    repo.apply_confirmation(group.batch, confirmation(group.batch), NOW)
+    repo.save_settings(attempted)
+    assert repo.load_installation().settings == attempted
+
+
+def test_origin_gate_preserves_httpx_ascii_host_compatibility(repository):
+    repo = repository
+    first = LocalSettings(server_url="http://watt_server:8080")
+    repo.save_settings(first)
+    assert httpx.URL(first.server_url).raw_host == b"watt_server"
+
+    # Same-origin edits, changes, and clearing remain valid with no backlog.
+    repo.save_settings(first)
+    changed = LocalSettings(server_url="http://other_server:8080")
+    repo.save_settings(changed)
+    repo.save_settings(LocalSettings())
+
+    # A non-null ASCII origin still obeys the pending-record protection.
+    repo.save_settings(first)
+    repo.insert_snapshot(record(repo))
+    with pytest.raises(ValueError, match="^pending_uploads_prevent_server_change$"):
+        repo.save_settings(changed)
+    assert repo.load_installation().settings == first
+
+
+def test_origin_gate_matches_transport_idna_with_pending_records(repository):
+    repo = repository
+    assert (
+        origin_identity("https://faß.de")[1].encode("ascii") == httpx.URL("https://faß.de").raw_host
+    )
+    assert (
+        origin_identity("https://fass.de")[1].encode("ascii")
+        == httpx.URL("https://fass.de").raw_host
+    )
+    assert origin_identity("https://faß.de") != origin_identity("https://fass.de")
+    repo.insert_snapshot(record(repo))
+    unicode_origin = LocalSettings(server_url="https://faß.de")
+    repo.save_settings(unicode_origin)
+
+    # These spellings reach the same IDNA 2008 destination, so editing between
+    # them does not change the effective origin.
+    punycode_origin = LocalSettings(server_url="https://xn--fa-hia.de")
+    repo.save_settings(punycode_origin)
+    assert repo.load_installation().settings == punycode_origin
+
+    # Python's built-in IDNA 2003 codec conflates faß.de with fass.de. HTTPX
+    # sends them to distinct hosts, so pending records must block this change.
+    with pytest.raises(ValueError, match="^pending_uploads_prevent_server_change$"):
+        repo.save_settings(LocalSettings(server_url="https://fass.de"))
+    assert repo.load_installation().settings == punycode_origin
+
+
+@pytest.mark.parametrize("host", ["☃.net", "💩.net", "a\u200d.net", "�.net"])
+@pytest.mark.parametrize("has_pending", [False, True])
+def test_unencodable_accepted_origins_remain_comparable(repository, host, has_pending):
+    repo = repository
+    saved = LocalSettings(server_url=f"https://{host}")
+    repo.save_settings(saved)
+    if has_pending:
+        repo.insert_snapshot(record(repo))
+
+    # Same literal host always permits ordinary settings edits.
+    repo.save_settings(saved.model_copy(update={"serial_path": "edited-port"}))
+    other = LocalSettings(server_url="https://☀.net")
+    if has_pending:
+        with pytest.raises(ValueError, match="^pending_uploads_prevent_server_change$"):
+            repo.save_settings(other)
+        with pytest.raises(ValueError, match="^pending_uploads_prevent_server_change$"):
+            repo.save_settings(LocalSettings())
+    else:
+        repo.save_settings(other)
+        repo.save_settings(LocalSettings())
+
+
+def test_unencodable_origin_identity_cannot_collide_with_normalized_host():
+    assert origin_identity("https://☃.net") != origin_identity("https://xn--n3h.net")
+
+
+def test_pending_insert_racing_origin_change_is_serialized(repository):
+    repo = repository
+    repo.save_settings(LocalSettings(server_url="https://old.test"))
+    snapshot = record(repo)
+    barrier = threading.Barrier(2)
+
+    def insert_pending():
+        barrier.wait()
+        return repo.insert_snapshot(snapshot)
+
+    def change_origin():
+        barrier.wait()
+        try:
+            repo.save_settings(LocalSettings(server_url="https://new.test"))
+        except ValueError as exc:
+            return exc.args[0]
+        return "changed"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        inserted = pool.submit(insert_pending)
+        changed = pool.submit(change_origin)
+        assert inserted.result()
+        outcome = changed.result()
+    saved = repo.load_installation().settings
+    assert saved.server_url == ("https://new.test" if outcome == "changed" else "https://old.test")
+    assert outcome in {"changed", "pending_uploads_prevent_server_change"}
+    assert repo.get_status().pending_count == 1
 
 
 @pytest.mark.parametrize(

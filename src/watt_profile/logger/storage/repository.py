@@ -12,11 +12,12 @@ from typing import Annotated, Self
 from uuid import UUID
 
 from pydantic import Field, StrictInt, StrictStr, TypeAdapter, model_validator
-from sqlalchemy import Engine, LargeBinary, case, delete, func, insert, select, update
+from sqlalchemy import Engine, LargeBinary, case, delete, func, insert, select, tuple_, update
 from sqlalchemy.orm import Session
 
 from watt_profile.contracts.domain import (
     UUID4,
+    UUID5,
     DecimalValue,
     DomainModel,
     SessionDescriptor,
@@ -43,7 +44,7 @@ from watt_profile.contracts.upload import (
     validate_confirmation_body,
 )
 from watt_profile.logger.storage import schema as db
-from watt_profile.logger.storage.database import valid_origin
+from watt_profile.logger.storage.database import origin_identity, valid_origin
 
 
 def _time(value: datetime) -> str:
@@ -112,6 +113,9 @@ class PendingGroup(DomainModel):
     batch: UploadBatch
     canonical_records: tuple[bytes, ...]
     body: bytes
+
+
+PendingGroupKey = tuple[UUID4, UUID4, UUID4, UUID4, UUID5]
 
 
 def _projection(snapshot: Snapshot) -> dict[str, object]:
@@ -264,6 +268,17 @@ class LoggerRepository:
             )
             if expected_session_id is not _UNSET_SESSION and expected_session_id != selected:
                 raise ValueError("stale_session")
+            old_origin = installation.settings.server_url
+            if old_origin is not None and origin_identity(old_origin) != origin_identity(
+                settings.server_url
+            ):
+                pending = session.scalar(
+                    select(func.count())
+                    .select_from(db.snapshots)
+                    .where(db.snapshots.c.upload_state == "pending")
+                )
+                if pending:
+                    raise ValueError("pending_uploads_prevent_server_change")
             session.execute(update(db.config).values(**settings.storage_values()))
         return settings
 
@@ -462,7 +477,11 @@ class LoggerRepository:
             return True
 
     def select_pending_group(
-        self, limit: int = MAX_BATCH_RECORDS, byte_limit: int = MAX_BODY_BYTES
+        self,
+        limit: int = MAX_BATCH_RECORDS,
+        byte_limit: int = MAX_BODY_BYTES,
+        *,
+        excluded_groups: tuple[PendingGroupKey, ...] = (),
     ) -> PendingGroup | None:
         if (
             type(limit) is not int
@@ -471,17 +490,32 @@ class LoggerRepository:
             or not 1 <= byte_limit <= MAX_BODY_BYTES
         ):
             raise ValueError("invalid_batch_limit")
+        if type(excluded_groups) is not tuple or any(
+            type(key) is not tuple or len(key) != 5 or any(type(value) is not UUID for value in key)
+            for key in excluded_groups
+        ):
+            raise ValueError("invalid_excluded_groups")
         with self._transaction() as session:
+            excluded = [tuple(str(value) for value in key) for key in excluded_groups]
+            group_columns = (
+                "device_id",
+                "site_id",
+                "session_id",
+                "source_id",
+                "measurement_point_id",
+            )
+            eligible = select(db.snapshots).where(db.snapshots.c.upload_state == "pending")
+            if excluded:
+                eligible = eligible.where(
+                    tuple_(*(db.snapshots.c[name] for name in group_columns)).not_in(excluded)
+                )
             first = (
                 session.execute(
-                    select(db.snapshots)
-                    .where(db.snapshots.c.upload_state == "pending")
-                    .order_by(
+                    eligible.order_by(
                         db.snapshots.c.received_at,
                         db.snapshots.c.record_id,
                         db.snapshots.c.device_id,
-                    )
-                    .limit(1)
+                    ).limit(1)
                 )
                 .mappings()
                 .one_or_none()

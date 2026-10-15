@@ -1,13 +1,16 @@
 """Durable installation/deployment acceptance with temporary credentials and fake drains."""
 
+import json
 import stat
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
 from sqlalchemy import event, insert, select
 from sqlalchemy.exc import IntegrityError
 
+from watt_profile.contracts.domain import Snapshot
 from watt_profile.logger.bootstrap import installation_lock
 from watt_profile.logger.deployment import DeploymentCommand, DeploymentOperations, SettingsCommand
 from watt_profile.logger.identity import (
@@ -389,3 +392,37 @@ def test_serial_save_pause_and_stale_settings_transaction(installation):
     with pytest.raises(ValueError, match="stale_session"):
         repo.save_settings(settings, expected_session_id=uuid4())
     assert repo.load_installation().settings == changed
+
+
+def test_rejected_origin_only_edit_keeps_active_collection_and_all_settings(installation):
+    repo, _ = installation
+    drains = []
+    ops = DeploymentOperations(repo, lambda state: drains.append(state) or NOW)
+    selected = deploy(ops, ops.create_site()).lifecycle.session.descriptor.session_id
+    ops.start(selected, input_mode="synthetic")
+    ops.owner_started()
+    current = LocalSettings(server_url="https://old.example")
+    ops.save_settings(SettingsCommand(settings=current, expected_session_id=selected), NOW)
+
+    state = repo.load_lifecycle()
+    data = json.loads((Path(__file__).parent.parent / "examples/ingest/request.json").read_bytes())[
+        "records"
+    ][0]
+    source = state.source.descriptor
+    data.update(
+        record_id=str(uuid4()),
+        device_id=str(state.device_id),
+        site_id=str(state.session.descriptor.site_id),
+        session_id=str(selected),
+        source_id=str(source.source_id),
+        measurement_point_id=str(source.measurement_point_id),
+        meter_time_utc=None,
+    )
+    repo.insert_snapshot(Snapshot.model_validate(data))
+    changed = LocalSettings(server_url="https://new.example")
+    with pytest.raises(ValueError, match="^pending_uploads_prevent_server_change$"):
+        ops.save_settings(SettingsCommand(settings=changed, expected_session_id=selected), NOW)
+    assert repo.load_installation().settings == current
+    assert repo.load_lifecycle().session.collection_enabled
+    assert ops.state.collection_state == "collecting"
+    assert not drains

@@ -2,7 +2,7 @@
 
 > [English — source of truth](m4.md) · **中文**
 
-状态：实施中，2026-10-15。M1–M3 已验收。M4-01–M4-02 已通过自动检查与独立评审；M4-03–M4-10 仍为计划任务。LOGGER-001 代码已验证，实机和发布仍待完成。业主报告现有 ARM64 Raspberry Pi 4 持续离线采集、积累待上传记录，尚未配置服务器 origin；代理未检查设备或其数据。
+状态：实施中，2026-10-15。M1–M3 已验收。M4-01–M4-03 已通过自动检查与独立评审；M4-04–M4-10 仍为计划任务。LOGGER-001 代码已验证，实机和发布仍待完成。业主报告现有 ARM64 Raspberry Pi 4 持续离线采集、积累待上传记录，尚未配置服务器 origin；代理未检查设备或其数据。
 
 ## 1. 目标与 Agent 使用方式
 
@@ -308,3 +308,5 @@ M4-09–10 在交给所有者前须用可丢弃安装验证精确命令。遵守
 - **M4-01 — 自动验收，2026-10-15：** 已在 `fix/logger-preview-cleanup` 实现 reader 独占串口关闭、捕获 owner 的取消/join 协调及 preview 保证清理。runtime/lifecycle/probe/maintenance 选择器 **120 passed**；Ruff lint/format 和 `git diff --check` 通过。全新独立评审通过。全部检查使用临时 SQLite 与假串口；API/浏览器/容器回归在 M4-02 完成。实机和发布仍待完成。
 
 - **M4-02 — 自动验收，2026-10-15：** 固定串口 close/join API 错误及可见的重启恢复提示；验证状态可响应、重复预览后恢复部署/采集。API/runtime/synthetic **58 passed**；隔离 Chromium **7 passed**；既有 Logger Compose/persistence **1 passed，107.12 秒**。Ruff lint/format 和 diff check 通过。全新独立评审通过（API 27、浏览器 7）；评审者静态检查 Compose，未重复运行。一次性 `watt-m2-m4-1792079540-32232` 容器、卷、网络及精确应用标签均清理并复查为空。修复在 M4-03 前集成；业主实机和发布仍待完成。
+
+- **M4-03 — 自动验收，2026-10-15：** typed 组键排除、最旧合格组选择及事务内 pending-origin 保护已实现；原样保留 canonical bytes，origin-only 拒绝不暂停采集。最终 storage/identity/runtime **113 passed**，加 API **140 passed**，Ruff lint/format 与 diff check 通过，全新独立评审通过。三轮修复解决 IDNA2003 混淆不同目标、ASCII 主机兼容及已允许但无法编码主机的配置恢复问题。增加直接运行时 idna 依赖，两份锁真实重生成且版本 pin 不变；HTTPX 提升仍留给 M4-04。仅使用临时 SQLite/假串口，无真实 HTTP。
