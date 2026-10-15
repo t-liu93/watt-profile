@@ -2,8 +2,8 @@
 (() => {
   const $ = id => document.getElementById(id);
   const csrf = document.querySelector('meta[name="csrf-token"]').content;
-  let status = null, busy = false, expired = false, polling = null;
-  let siteOffset = 0, siteTotal = 0, sessionOffset = 0, sessionTotal = 0, sites = [];
+  let status = null, busy = false, expired = false, polling = null, retrying = false;
+  let siteOffset = 0, siteTotal = 0, sessionOffset = 0, sessionTotal = 0, sites = [], sessionsLoading = false;
   let previewReading = null, section = "collection", registrationGeneration = 0;
   const pageSize = 20;
   const show = (id, text) => { $(id).textContent = text; };
@@ -22,6 +22,9 @@
     if (code === "unauthorized") {
       expired = true; clearRegistration(); $("login-link").hidden = false;
       show("error", "Login expired. Log in again to continue.");
+    }
+    if (code === "pending_uploads_prevent_server_change") {
+      show("error", "Server origin cannot change while uploads are pending. Restore access to the saved server, register this Logger there, then Retry upload until the backlog clears. Your entered settings are still available.");
     }
     controls();
   }
@@ -43,6 +46,7 @@
     const transitioning = status && ["starting", "stopping", "previewing"].includes(status.logger.collection_state);
     const serialFault = status && ["serial_close_failed", "serial_join_failed"].includes(status.runtime_error);
     document.querySelectorAll("[data-mutation]").forEach(b => b.disabled = busy || expired || !status || transitioning || serialFault);
+    $("retry-upload").disabled = expired || !status || retrying;
     const recovery = $("serial-recovery");
     recovery.hidden = !serialFault;
     recovery.textContent = serialFault
@@ -78,8 +82,38 @@
       ["Persisted blocks", next.persisted_blocks.join(", ") || "None"],
       ["Collection error", s.latest_collection_error || "None"], ["Runtime error", next.runtime_error || "None"],
       ["Last successful upload checkpoint (UTC)", s.last_successful_upload_at], ["Upload mode", next.upload_mode]]);
+    const up = next.upload;
+    details("upload-status", [["Mode", next.upload_mode], ["State", up.state],
+      ["Next attempt (UTC)", up.next_attempt_at], ["Global upload error", up.global_error || "None"],
+      ["Blocked session groups", up.blocked_group_count], ["All-session pending count", s.pending_count],
+      ["All-session pending bytes", s.pending_bytes], ["Oldest pending reception (UTC)", s.oldest_pending_received_at],
+      ["Last durable confirmation checkpoint (UTC)", s.last_successful_upload_at]]);
+    const errorText = up.global_error ? ` Upload is ${up.state}: ${explainError(up.global_error)}.` : "";
+    show("upload-help", next.upload_mode === "unconfigured"
+      ? "No Server origin is saved, so the Logger makes no upload request. Save an origin to enable automatic recovery."
+      : `Uploads run automatically. Retry schedules another attempt and does not confirm delivery.${errorText}`);
+    show("upload-banner", next.upload_mode === "unconfigured" ? "Upload is unconfigured; saved snapshots remain pending until a Server origin is saved."
+      : `Upload ${up.state}; ${s.pending_count} snapshots remain pending.${errorText}`);
+    $("retry-upload").disabled = expired || !status || retrying;
+    if (section === "maintenance" && !sessionsLoading) loadSessions().catch(failure);
     renderReading(previewReading || next.latest_live_reading, previewReading ? "Read preview (not stored)" : "Live reading (not proof of storage)");
     controls();
+  }
+  function explainError(code) {
+    const text = {
+      invalid_credential: "the Server rejected the registration Token; reveal and register the current Logger identity, then Retry",
+      site_not_authorized: "the Server denied this identity for the session site; authorize that site, then Retry",
+      device_mismatch: "the Server identity does not match this Logger; check registration before Retry",
+      upload_network_error: "the Server could not be reached; check connectivity",
+      upload_timeout: "the request timed out; records remain pending and will be retried",
+      upload_endpoint_error: "the saved Server endpoint did not accept ingestion; verify the saved origin",
+      upload_worker_failed: "the local upload worker stopped and needs a Logger restart",
+      upload_storage_error: "the confirmation could not be saved locally; check storage",
+      upload_protocol_error: "the Server response could not be confirmed; records remain pending",
+      invalid_confirmation: "the Server response could not be verified; records remain pending",
+      upload_http_rejected: "the Server rejected this session group; check its registration and data"
+    };
+    return text[code] || "the request failed; records remain pending";
   }
   function renderReading(reading, kind) {
     show("reading-kind", reading ? kind : "No live reading available.");
@@ -137,19 +171,39 @@
     $("sites-prev").disabled = siteOffset === 0; $("sites-next").disabled = siteOffset + pageSize >= siteTotal;
   }
   async function loadSessions() {
-    const page = await api(`/sessions?offset=${sessionOffset}&limit=${pageSize}`);
+    if (sessionsLoading) return;
+    sessionsLoading = true;
+    const requestedOffset = sessionOffset;
+    let reloadRequestedPage = false;
+    try {
+    const page = await api(`/sessions?offset=${requestedOffset}&limit=${pageSize}`);
+    // A pagination click can change sessionOffset while this request is pending.
+    // Never render old rows with the newer page's range; fetch that requested page.
+    if (requestedOffset !== sessionOffset) {
+      reloadRequestedPage = true;
+      return;
+    }
+    const checked = new Set([...$("sessions").querySelectorAll("input:checked")].map(i => i.value));
+    const focused = document.activeElement?.matches("#sessions input[type=checkbox]")
+      ? document.activeElement.value : null;
     sessionTotal = page.total; $("sessions").replaceChildren();
     for (const s of page.items) {
       const row = document.createElement("tr"), choice = document.createElement("td"), input = document.createElement("input");
       input.type = "checkbox"; input.value = s.session_id; input.setAttribute("aria-label", `Clean session ${s.session_id}`);
       input.disabled = s.state !== "completed" || s.eligible_uploaded_count === 0; choice.append(input); row.append(choice);
-      for (const text of [`${s.session_id}\nSource: ${s.source_id}\nSite: ${s.site_id}`, `${s.state} / ${s.collection_enabled ? "enabled" : "paused"}`, s.total_count, s.pending_count, s.eligible_uploaded_count]) {
+      input.checked = checked.has(s.session_id);
+      for (const text of [`${s.session_id}\nSource: ${s.source_id}\nSite: ${s.site_id}`, `${s.state} / ${s.collection_enabled ? "enabled" : "paused"}`, s.total_count, s.pending_count, s.eligible_uploaded_count, s.upload_error ? `${s.upload_error}: ${explainError(s.upload_error)}` : "None"]) {
         const cell = document.createElement("td"); cell.textContent = text; row.append(cell);
       }
       $("sessions").append(row);
     }
-    show("session-page", `${sessionTotal ? sessionOffset + 1 : 0}–${sessionOffset + page.items.length} of ${sessionTotal} sessions`);
+    if (focused) $("sessions").querySelector(`input[value="${CSS.escape(focused)}"]`)?.focus();
+    show("session-page", `${sessionTotal ? requestedOffset + 1 : 0}–${requestedOffset + page.items.length} of ${sessionTotal} sessions`);
     $("sessions-prev").disabled = sessionOffset === 0; $("sessions-next").disabled = sessionOffset + pageSize >= sessionTotal;
+    } finally {
+      sessionsLoading = false;
+      if (reloadRequestedPage && section === "maintenance") loadSessions().catch(failure);
+    }
   }
   document.querySelectorAll("[data-section]").forEach(button => button.onclick = () => {
     clearRegistration(); section = button.dataset.section;
@@ -161,6 +215,15 @@
   $("logout").onsubmit = clearRegistration;
   window.addEventListener("pagehide", clearRegistration);
   $("reload").onclick = refreshStatus;
+  $("retry-upload").onclick = async () => {
+    if (expired || !status || retrying) return;
+    retrying = true; $("retry-upload").disabled = true;
+    $("error").hidden = true;
+    show("message", "Retry requested. Delivery will be confirmed only after the Server accepts records and the checkpoint is saved.");
+    try { renderStatus(await api("/upload/retry", "POST", {})); }
+    catch (error) { failure(error); }
+    finally { retrying = false; $("retry-upload").disabled = expired || !status; }
+  };
   for (const action of ["start", "pause", "complete"]) $(action).onclick = () => mutate(async () => {
     const id = status.logger.session_id;
     if (action === "complete" && !await confirm(`Complete session ${id}, source ${status.logger.source_id}? Collection stops and pending records remain protected. A new deployment is needed to collect again.`)) return false;

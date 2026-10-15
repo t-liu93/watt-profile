@@ -17,6 +17,7 @@ from watt_profile.contracts.upload import UploadConfirmation
 from watt_profile.logger.app import create_app
 from watt_profile.logger.auth import MAX_AGE
 from watt_profile.logger.settings import LoggerSettings
+from watt_profile.logger.upload import TransportResult
 
 PASSWORD = "temporary-browser-password"
 FRAME = (Path(__file__).parents[1] / "fixtures/p1/profile/single_phase.telegram").read_bytes()
@@ -64,6 +65,34 @@ class Factory:
         return port
 
 
+class FakeUpload:
+    """Explicit isolated transport; a configured origin never reaches the network."""
+
+    def __init__(self):
+        self.result = TransportResult(401, error_code="invalid_credential")
+        self.calls = []
+        self.reject_site_id = None
+
+    async def send(self, origin, token, group):
+        self.calls.append((origin, token, group))
+        if self.reject_site_id == str(group.batch.site_id):
+            return TransportResult(403, error_code="site_not_authorized")
+        if self.result.status_code == 200:
+            batch = group.batch
+            return TransportResult(
+                200,
+                confirmation=UploadConfirmation(
+                    schema_version=1,
+                    device_id=batch.device_id,
+                    confirmed_record_ids=tuple(record.record_id for record in batch.records),
+                ),
+            )
+        return self.result
+
+    async def aclose(self):
+        pass
+
+
 @pytest.fixture
 def browser_app(tmp_path, request):
     password = tmp_path / "password"
@@ -77,8 +106,13 @@ def browser_app(tmp_path, request):
         }
     )
     auth_time = [0.0]
+    upload = FakeUpload()
     app = create_app(
-        settings, serial_factory=Factory(), clock=Clock(), auth_clock=lambda: auth_time[0]
+        settings,
+        serial_factory=Factory(),
+        clock=Clock(),
+        auth_clock=lambda: auth_time[0],
+        upload_transport_factory=lambda _: upload,
     )
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
@@ -107,7 +141,7 @@ def browser_app(tmp_path, request):
                             else route.abort()
                         ),
                     )
-                    yield page, origin, app, auth_time
+                    yield page, origin, app, auth_time, upload
                 finally:
                     context.close()
             finally:
@@ -166,11 +200,12 @@ def current_session(page):
 
 
 def test_offline_keyboard_preview_lifecycle_and_privacy(browser_app):
-    page, origin, app, _ = browser_app
+    page, origin, app, _, upload = browser_app
     login(page, origin)
-    expect(
-        page.get_by_text("Upload not implemented in M2; records remain pending", exact=True)
-    ).to_be_visible()
+    expect(page.locator("#upload-banner")).to_contain_text("unconfigured")
+    page.get_by_role("button", name="Retry upload").click()
+    expect(page.locator("#message")).to_contain_text("Retry requested")
+    assert upload.calls == []
     expect(page.locator("#synthetic")).to_be_hidden()
     # Configure without a site, then preview. Keyboard submission is supported.
     section(page, "Site and settings")
@@ -237,7 +272,7 @@ def test_offline_keyboard_preview_lifecycle_and_privacy(browser_app):
 
 @pytest.mark.parametrize("fault", ["serial_close_failed", "serial_join_failed"])
 def test_latched_serial_fault_explains_recovery_and_disables_mutations(browser_app, fault):
-    page, origin, app, _ = browser_app
+    page, origin, app, _, _ = browser_app
     login(page, origin)
     app.state.runtime.runtime_error = fault
     page.get_by_role("button", name="Reload status").click()
@@ -253,7 +288,7 @@ def test_latched_serial_fault_explains_recovery_and_disables_mutations(browser_a
 
 
 def test_optional_preview_switch_current_freshness_errors_and_expiry(browser_app):
-    page, origin, app, auth_time = browser_app
+    page, origin, app, auth_time, upload = browser_app
     login(page, origin)
     saved_setup(page)
     section(page, "Collection")
@@ -276,6 +311,18 @@ def test_optional_preview_switch_current_freshness_errors_and_expiry(browser_app
         page.locator("#status dt").filter(has_text="Latest saved current-session").locator("+ dd")
     ).to_have_text("Unavailable")
     assert app.state.repository.get_status().pending_count > 0
+    section(page, "Site and settings")
+    origin_input = page.get_by_label("Server origin (optional)")
+    origin_input.fill("https://saved-upload.invalid")
+    page.get_by_role("button", name="Save settings").click()
+    expect(page.locator("#message")).to_have_text("Command completed.")
+    origin_input.fill("https://new-upload.invalid")
+    page.get_by_role("button", name="Save settings").click()
+    expect(page.locator("#error")).to_contain_text(
+        "Server origin cannot change while uploads are pending"
+    )
+    expect(page.locator("#error")).to_contain_text("Restore access to the saved server")
+    expect(origin_input).to_have_value("https://new-upload.invalid")
     # Fixed API failures remain visible; no false command-success state.
     page.route(
         "**/api/local/v1/preview",
@@ -303,10 +350,206 @@ def test_optional_preview_switch_current_freshness_errors_and_expiry(browser_app
     expect(page.locator("#error")).to_have_text("Login expired. Log in again to continue.")
     expect(page.get_by_role("link", name="Log in again")).to_be_visible()
     expect(page.get_by_role("button", name="Start / resume", exact=True)).to_be_disabled()
+    expect(page.get_by_role("button", name="Retry upload")).to_be_disabled()
+
+
+def test_retry_is_independent_and_explains_auth_recovery(browser_app):
+    page, origin, app, _, upload = browser_app
+    login(page, origin)
+    saved_setup(page)
+    section(page, "Collection")
+    page.get_by_role("button", name="Start / resume", exact=True).click()
+    expect(page.locator("#status")).to_contain_text("collecting")
+    page.wait_for_timeout(500)
+    initial_pending = app.state.repository.get_status().pending_count
+    assert initial_pending > 0
+    section(page, "Site and settings")
+    page.get_by_label("Server origin (optional)").fill("https://upload.invalid")
+    page.get_by_role("button", name="Save settings").click()
+    expect(page.locator("#message")).to_have_text("Command completed.")
+    page.wait_for_function(
+        "() => document.querySelector('#upload-status').textContent.includes('blocked')"
+    )
+    expect(page.locator("#upload-help")).to_contain_text("registration Token")
+    section(page, "Reading preview")
+    upload.result = TransportResult(200)
+    # Retry stays enabled during preview and does not take the serial mutation lock.
+    page.evaluate("""() => {
+      const original = window.fetch;
+      window.fetch = async (...args) => {
+        if (String(args[0]).endsWith('/preview')) {
+          await new Promise(resolve => setTimeout(resolve, 700));
+        }
+        return original(...args);
+      };
+    }""")
+    page.evaluate("""() => {
+      const original = window.fetch;
+      window.retryRequests = 0;
+      window.fetch = async (...args) => {
+        if (String(args[0]).endsWith('/upload/retry')) {
+          window.retryRequests++;
+          await new Promise(resolve => setTimeout(resolve, 2600));
+        }
+        return original(...args);
+      };
+    }""")
+    page.get_by_role("button", name="Read preview").click()
+    expect(page.get_by_role("button", name="Retry upload")).to_be_enabled()
+    expect(page.get_by_role("button", name="Read preview")).to_be_disabled()
+    page.get_by_role("button", name="Retry upload").click()
+    expect(page.locator("#message")).to_contain_text("Retry requested")
+    expect(page.get_by_role("button", name="Retry upload")).to_be_disabled()
+    page.wait_for_timeout(2100)
+    expect(page.get_by_role("button", name="Retry upload")).to_be_disabled()
+    page.evaluate("document.getElementById('retry-upload').click()")
+    assert page.evaluate("window.retryRequests") == 1
+    deadline = time.monotonic() + 5
+    while (
+        len(upload.calls) < 2 or app.state.repository.get_status().last_successful_upload_at is None
+    ) and time.monotonic() < deadline:
+        page.wait_for_timeout(50)
+    assert len(upload.calls) >= 2
+    assert app.state.repository.get_status().last_successful_upload_at is not None
+    section(page, "Collection")
+    page.get_by_role("button", name="Pause", exact=True).click()
+    expect(page.locator("#status")).to_contain_text("idle")
+    app.state.runtime.runtime_error = "serial_close_failed"
+    page.get_by_role("button", name="Reload status").click()
+    expect(page.locator("#serial-recovery")).to_be_visible()
+    expect(page.locator("#serial-recovery")).to_contain_text("serial_close_failed")
+    expect(page.locator("#upload-status")).not_to_contain_text(
+        "Last durable confirmation checkpoint (UTC)\nUnavailable"
+    )
+
+
+def test_group_block_stays_visible_while_other_session_uploads(browser_app):
+    page, origin, app, _, upload = browser_app
+    login(page, origin)
+    saved_setup(page, "First site")
+    section(page, "Collection")
+    page.get_by_role("button", name="Start / resume", exact=True).click()
+    page.wait_for_timeout(350)
+    first_site = app.state.repository.load_lifecycle().session.descriptor.site_id
+    page.get_by_role("button", name="Pause", exact=True).click()
+    section(page, "Site and settings")
+    page.get_by_label("Address", exact=True).fill("Second site")
+    page.get_by_role("button", name="Create / import site", exact=True).click()
+    page.get_by_role("button", name="Create paused deployment / switch site").click()
+    page.get_by_role("button", name="Confirm", exact=True).click()
+    section(page, "Collection")
+    page.get_by_role("button", name="Start / resume", exact=True).click()
+    page.wait_for_timeout(350)
+    page.get_by_role("button", name="Pause", exact=True).click()
+    section(page, "Site and settings")
+    page.get_by_label("Server origin (optional)").fill("https://upload.invalid")
+    upload.reject_site_id = str(first_site)
+    upload.result = TransportResult(200)
+    page.get_by_role("button", name="Save settings").click()
+    expect(page.locator("#message")).to_have_text("Command completed.")
+    page.wait_for_function("""() => {
+      const dt = [...document.querySelectorAll('#upload-status dt')]
+        .find(node => node.textContent === 'Last durable confirmation checkpoint (UTC)');
+      return dt && dt.nextElementSibling.textContent !== 'Unavailable';
+    }""")
+    section(page, "Maintenance")
+    first_row = page.locator("#sessions tr").filter(has_text=str(first_site))
+    expect(first_row).to_contain_text("site_not_authorized")
+    expect(page.locator("#upload-status")).to_contain_text("Blocked session groups")
+    rows = page.locator("#sessions tr")
+    assert rows.count() == 2
+    assert app.state.repository.get_status().pending_count > 0
+
+
+def test_maintenance_poll_preserves_keyboard_focus(browser_app):
+    page, origin, _, _, _ = browser_app
+    login(page, origin)
+    page.evaluate("""() => {
+      const original = window.fetch;
+      window.sessionLoads = 0;
+      window.fetch = async (...args) => {
+        if (String(args[0]).includes('/sessions?')) {
+          window.sessionLoads++;
+          return new Response(JSON.stringify({data: {total: 1, items: [{
+            session_id: '00000000-0000-4000-8000-000000000001',
+            device_id: '00000000-0000-4000-8000-000000000002',
+            site_id: '00000000-0000-4000-8000-000000000003',
+            source_id: '00000000-0000-4000-8000-000000000004',
+            measurement_point_id: '00000000-0000-5000-8000-000000000005',
+            started_at: '2026-01-01T00:00:00Z', state: 'completed',
+            collection_enabled: false, ended_at: '2026-01-01T00:01:00Z',
+            total_count: 1, pending_count: 0, eligible_uploaded_count: 1,
+            upload_error: null
+          }]}}), {headers: {'Content-Type': 'application/json'}});
+        }
+        return original(...args);
+      };
+    }""")
+    section(page, "Maintenance")
+    page.wait_for_function("window.sessionLoads >= 1")
+    checkbox = page.locator("#sessions input")
+    checkbox.focus()
+    page.keyboard.press("Space")
+    expect(checkbox).to_be_checked()
+    expect(checkbox).to_be_focused()
+    page.wait_for_function("window.sessionLoads >= 2", timeout=5000)
+    expect(page.locator("#sessions input")).to_be_checked()
+    expect(page.locator("#sessions input")).to_be_focused()
+
+
+def test_session_navigation_during_refresh_loads_requested_page(browser_app):
+    page, origin, _, _, _ = browser_app
+    login(page, origin)
+    page.evaluate("""() => {
+      const original = window.fetch;
+      window.holdNextSessions = false;
+      window.releaseSessions = null;
+      window.fetch = async (...args) => {
+        const url = String(args[0]);
+        if (url.includes('/sessions?')) {
+          const offset = Number(new URL(url, location.href).searchParams.get('offset'));
+          if (window.holdNextSessions) {
+            window.holdNextSessions = false;
+            window.sessionRequestPending = true;
+            await new Promise(resolve => { window.releaseSessions = resolve; });
+          }
+          const items = Array.from({length: Math.min(20, 45 - offset)}, (_, index) => {
+            const number = offset + index;
+            return {
+              session_id: `00000000-0000-4000-8000-${String(number + 1).padStart(12, '0')}`,
+              device_id: '00000000-0000-4000-8000-000000000002',
+              site_id: '00000000-0000-4000-8000-000000000003',
+              source_id: '00000000-0000-4000-8000-000000000004',
+              measurement_point_id: '00000000-0000-5000-8000-000000000005',
+              started_at: '2026-01-01T00:00:00Z', state: 'completed',
+              collection_enabled: false, ended_at: '2026-01-01T00:01:00Z',
+              total_count: 1, pending_count: 0, eligible_uploaded_count: 1,
+              upload_error: null
+            };
+          });
+          return new Response(JSON.stringify({data: {items, total: 45}}),
+            {headers: {'Content-Type': 'application/json'}});
+        }
+        return original(...args);
+      };
+    }""")
+    section(page, "Maintenance")
+    expect(page.locator("#sessions tr")).to_have_count(20)
+    expect(page.locator("#session-page")).to_have_text("1–20 of 45 sessions")
+    page.evaluate("window.holdNextSessions = true")
+    page.evaluate("document.getElementById('reload').click()")
+    page.wait_for_function("window.sessionRequestPending === true")
+    page.get_by_role("button", name="Next sessions").click()
+    page.evaluate("window.releaseSessions()")
+    expect(page.locator("#sessions tr")).to_have_count(20)
+    expect(page.locator("#sessions tr").first).to_contain_text(
+        "00000000-0000-4000-8000-000000000021"
+    )
+    expect(page.locator("#session-page")).to_have_text("21–40 of 45 sessions")
 
 
 def test_eligible_cleanup_and_paginated_sites(browser_app):
-    page, origin, app, _ = browser_app
+    page, origin, app, _, _ = browser_app
     login(page, origin)
     saved_setup(page)
     section(page, "Collection")
@@ -338,7 +581,21 @@ def test_eligible_cleanup_and_paginated_sites(browser_app):
     assert pending > 0
     section(page, "Maintenance")
     expect(page.locator("#sessions input")).to_be_enabled()
+    page.evaluate("""() => {
+      const original = window.fetch;
+      window.sessionRequests = 0;
+      window.fetch = async (...args) => {
+        if (String(args[0]).includes('/sessions?')) {
+          window.sessionRequests++;
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+        return original(...args);
+      };
+    }""")
+    section(page, "Maintenance")
+    page.wait_for_function("window.sessionRequests > 0")
     page.locator("#sessions input").check()
+    expect(page.locator("#sessions input")).to_be_checked()
     page.get_by_role("button", name="Clean selected eligible records").click()
     expect(page.get_by_role("dialog")).to_contain_text(current_session(page))
     page.get_by_role("button", name="Confirm", exact=True).click()
@@ -356,7 +613,7 @@ def test_eligible_cleanup_and_paginated_sites(browser_app):
 
 
 def test_polling_does_not_overlap_or_replay_commands(browser_app):
-    page, origin, app, _ = browser_app
+    page, origin, app, _, _ = browser_app
     login(page, origin)
     # Track status fetches independently of app latency and hold each one > 2 seconds.
     page.evaluate("""() => {
@@ -380,7 +637,7 @@ def test_polling_does_not_overlap_or_replay_commands(browser_app):
 
 @pytest.mark.parametrize("browser_app", ["synthetic"], indirect=True)
 def test_synthetic_banner_meter_confirmation_and_separate_storage_start(browser_app):
-    page, origin, app, _ = browser_app
+    page, origin, app, _, _ = browser_app
     login(page, origin)
     expect(page.locator("#synthetic")).to_be_visible()
     # The injected fake supplies bytes; no deployment synthetic source is introduced.
