@@ -5,6 +5,9 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
+
+from watt_profile.logger.storage.database import valid_origin
 
 
 class SettingsError(ValueError):
@@ -20,6 +23,8 @@ class LoggerSettings:
     operator_user: str
     operator_password_file: Path
     cookie_secure: bool
+    dev_server_origin: str | None = None
+    dev_server_connect_origin: str | None = None
 
     @classmethod
     def from_env(cls, environ: dict[str, str] | None = None) -> LoggerSettings:
@@ -36,6 +41,8 @@ class LoggerSettings:
         operator_user = values.get("WATT_LOGGER_OPERATOR_USER", "")
         password_path = values.get("WATT_LOGGER_OPERATOR_PASSWORD_FILE", "")
         raw_secure = values.get("WATT_LOGGER_COOKIE_SECURE", "false").lower()
+        expected_origin = values.get("WATT_LOGGER_DEV_SERVER_ORIGIN")
+        connect_origin = values.get("WATT_LOGGER_DEV_SERVER_CONNECT_ORIGIN")
 
         try:
             port = int(raw_port)
@@ -47,6 +54,18 @@ class LoggerSettings:
             raise SettingsError("invalid logger host")
         if input_mode not in {"serial", "synthetic"}:
             raise SettingsError("invalid logger input mode")
+        if (expected_origin is None) != (connect_origin is None):
+            raise SettingsError("development server origins must be configured together")
+        if expected_origin is not None:
+            if input_mode != "synthetic":
+                raise SettingsError("development server routing requires synthetic input")
+            if not valid_origin(expected_origin) or not valid_origin(connect_origin):
+                raise SettingsError("invalid development server origin")
+            if (
+                urlsplit(expected_origin).scheme != "http"
+                or urlsplit(connect_origin).scheme != "http"
+            ):
+                raise SettingsError("development server origins must use HTTP")
         if not 1 <= len(operator_user) <= 64 or "\x00" in operator_user:
             raise SettingsError("invalid operator username")
         if not password_path:
@@ -70,4 +89,6 @@ class LoggerSettings:
             operator_user=operator_user,
             operator_password_file=password_file,
             cookie_secure=raw_secure == "true",
+            dev_server_origin=expected_origin,
+            dev_server_connect_origin=connect_origin,
         )

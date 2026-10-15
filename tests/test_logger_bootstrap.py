@@ -39,6 +39,40 @@ def test_settings_validate_required_values_and_password(tmp_path: Path) -> None:
         LoggerSettings.from_env(_settings_env(password_file))
 
 
+def test_development_routing_settings_are_paired_http_and_synthetic_only(tmp_path: Path) -> None:
+    password_file = tmp_path / "password"
+    password_file.write_text("a-secure-password-123\n", encoding="utf-8")
+    base = _settings_env(password_file)
+    expected = "http://127.0.0.1:18081"
+    internal = "http://server:8080"
+    with pytest.raises(SettingsError):
+        LoggerSettings.from_env({**base, "WATT_LOGGER_DEV_SERVER_ORIGIN": expected})
+    config = LoggerSettings.from_env(
+        {
+            **base,
+            "WATT_LOGGER_INPUT": "synthetic",
+            "WATT_LOGGER_DEV_SERVER_ORIGIN": expected,
+            "WATT_LOGGER_DEV_SERVER_CONNECT_ORIGIN": internal,
+        }
+    )
+    assert config.dev_server_origin == expected
+    assert config.dev_server_connect_origin == internal
+    for changes in (
+        {"WATT_LOGGER_INPUT": "serial"},
+        {"WATT_LOGGER_DEV_SERVER_ORIGIN": "https://public.example"},
+        {"WATT_LOGGER_DEV_SERVER_CONNECT_ORIGIN": "https://server:8443"},
+    ):
+        with pytest.raises(SettingsError):
+            LoggerSettings.from_env(
+                {
+                    **base,
+                    "WATT_LOGGER_DEV_SERVER_ORIGIN": expected,
+                    "WATT_LOGGER_DEV_SERVER_CONNECT_ORIGIN": internal,
+                    **changes,
+                }
+            )
+
+
 @pytest.mark.parametrize("data_dir", ["", "   ", "relative/path", "bad\x00path"])
 def test_settings_reject_invalid_data_directory(tmp_path: Path, data_dir: str) -> None:
     password_file = tmp_path / "password"
