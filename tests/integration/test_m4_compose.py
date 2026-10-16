@@ -457,14 +457,17 @@ def test_combined_compose_routing_ports_and_owned_cleanup(tmp_path):
             ).status_code
             == 200
         )
+        # A's drained tail may still be pending. Wait for B itself before pausing
+        # its asynchronous reader; a global count can stop B before its first frame.
         wait_for(
-            lambda: (
-                value
-                if (value := local.get(prefix + "/status").json()["data"])["logger"][
-                    "pending_count"
-                ]
-                > 0
-                else None
+            lambda: next(
+                (
+                    session
+                    for session in local.get(prefix + "/sessions").json()["data"]["items"]
+                    if session["session_id"] == owner_b["session_id"]
+                    and session["pending_count"] > 0
+                ),
+                None,
             ),
             35,
             "Logger did not save B readings with the revoked grant",
