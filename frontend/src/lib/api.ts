@@ -48,6 +48,8 @@ export class APIClient {
     if (!['GET', 'HEAD'].includes((options.method ?? 'GET').toUpperCase())) headers.set('X-CSRF-Token', this.csrf)
     const controller = new AbortController()
     this.pending.add(controller)
+    let timedOut = false
+    const timer = globalThis.setTimeout(() => { timedOut = true; controller.abort() }, 22000)
     const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal
     try {
       let response: Response
@@ -69,8 +71,9 @@ export class APIClient {
       if (!response.ok) throw new APIError(result.error?.code ?? 'unknown', response.status)
       return result.data as T
     } catch (error) {
+      if (timedOut && !this.expired && !options.signal?.aborted) throw new APIError('timeout')
       if (this.expired || signal.aborted) throw new DOMException('Session ended', 'AbortError')
       throw error
-    } finally { this.pending.delete(controller) }
+    } finally { globalThis.clearTimeout(timer); this.pending.delete(controller) }
   }
 }

@@ -63,7 +63,7 @@ def login(page, origin):
     page.get_by_label("Username").fill("admin")
     page.get_by_label("Password").fill("synthetic-password-long-enough")
     page.get_by_role("button", name="Log in", exact=True).click()
-    expect(page.get_by_role("status")).to_have_text("Administrator session active")
+    expect(page.locator("#sites")).to_contain_text("No sites found")
 
 
 def test_shell_routes_preferences_accessibility_and_motion(shell, tmp_path):
@@ -81,13 +81,19 @@ def test_shell_routes_preferences_accessibility_and_motion(shell, tmp_path):
         f"/devices/{uuid4()}",
     ):
         page.goto(origin + path)
-        expect(page.get_by_role("status")).to_have_text("Administrator session active")
+        expect(page.locator(".workspace")).to_be_visible()
+        if "/sites/" in path or "/devices/" in path:
+            expect(page.get_by_role("alert")).to_contain_text("not found")
+        else:
+            expect(page.get_by_role("heading", level=2)).to_be_visible()
         page.reload()
-        expect(page.get_by_role("status")).to_have_text("Administrator session active")
+        expect(page.locator(".workspace")).to_be_visible()
     page.evaluate("window.dispatchEvent(new PageTransitionEvent('pagehide', {persisted:true}))")
     expect(page.locator(".workspace")).to_have_count(0)
     page.evaluate("window.dispatchEvent(new PageTransitionEvent('pageshow', {persisted:true}))")
-    expect(page.get_by_role("status")).to_have_text("Administrator session active")
+    expect(page.locator(".workspace")).to_be_visible()
+    page.goto(origin)
+    expect(page.locator(".neon-panel").first).to_be_visible()
     page.get_by_role("button", name="Switch to light mode").click()
     page.reload()
     expect(page.locator("html")).to_have_attribute("data-theme", "light")
@@ -114,7 +120,9 @@ def test_shell_routes_preferences_accessibility_and_motion(shell, tmp_path):
     assert page.evaluate("getComputedStyle(document.activeElement).outlineStyle != 'none'")
     page.emulate_media(reduced_motion="reduce")
     assert (
-        page.locator(".neon-panel").evaluate("e => getComputedStyle(e,'::before').animationName")
+        page.locator(".neon-panel").first.evaluate(
+            "e => getComputedStyle(e,'::before').animationName"
+        )
         == "none"
     )
     page.emulate_media(reduced_motion="no-preference")
@@ -124,7 +132,7 @@ def test_shell_routes_preferences_accessibility_and_motion(shell, tmp_path):
     }""")
     expect(page.locator("html")).to_have_attribute("data-hidden", "true")
     assert (
-        page.locator(".neon-panel").evaluate(
+        page.locator(".neon-panel").first.evaluate(
             "e => getComputedStyle(e,'::before').animationPlayState"
         )
         == "paused"
@@ -160,7 +168,7 @@ def test_native_auth_errors_csrf_logout_and_expiry(shell):
     page.get_by_label("Username").fill("admin")
     page.get_by_label("Password").fill("synthetic-password-long-enough")
     page.locator('form[action="/login"]').first.evaluate("form => form.submit()")
-    expect(page.get_by_role("status")).to_have_text("Administrator session active")
+    expect(page.locator("#sites")).to_contain_text("No sites found")
     app.state.auth.clear()
     page.get_by_role("link", name="Devices", exact=True).click()
     expect(page.get_by_role("heading", name="Server login")).to_be_visible()
@@ -180,18 +188,18 @@ def test_browser_language_default_and_stale_route_response(shell):
     expect(page.get_by_role("alert")).to_have_text("Enter a username and password.")
     login(page, origin)
     held = []
-    page.route("**/api/admin/v1/devices?limit=1", lambda route: held.append(route))
+    page.route("**/api/admin/v1/devices?*", lambda route: held.append(route))
     page.get_by_role("link", name="Devices", exact=True).click()
-    expect(page.get_by_role("status")).to_have_text("Checking session…")
+    expect(page.get_by_role("status")).to_have_text("Loading…")
     assert held
     page.get_by_role("link", name="Registration", exact=True).click()
-    expect(page.get_by_role("heading", name="Registration", exact=True)).to_be_visible()
-    page.unroute("**/api/admin/v1/devices?limit=1")
+    expect(page.get_by_role("heading", name="Registration", exact=True, level=2)).to_be_visible()
+    page.unroute("**/api/admin/v1/devices?*")
     for route in held:
         try:
             route.fulfill(status=503, json={"error": {"code": "temporarily_unavailable"}})
         except Exception:
             pass  # Chromium may already have cancelled the obsolete transport.
     page.get_by_role("link", name="Sites", exact=True).click()
-    expect(page.get_by_role("status")).to_have_text("Administrator session active")
+    expect(page.locator("#sites")).to_contain_text("No sites found")
     expect(page.get_by_role("alert")).to_have_count(0)

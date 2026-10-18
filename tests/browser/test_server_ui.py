@@ -84,6 +84,8 @@ def server_browser(browser_app, server_engine, server_settings):
 
 
 def preview(page, raw):
+    if not page.url.endswith("/registration"):
+        page.get_by_role("link", name="Registration", exact=True).first.click()
     page.get_by_label("Logger registration JSON").fill(raw)
     page.get_by_role("button", name="Preview registration").focus()
     page.keyboard.press("Enter")
@@ -112,11 +114,12 @@ def test_logger_registration_preserved_metadata_and_secret_cleanup(server_browse
     changed = dict(summary, address="Different\naddress", description="Different description")
     preview(page, json.dumps(changed))
     expect(page.locator("#preview")).to_contain_text("Existing metadata differs")
+    expect(page.locator("#preview")).to_contain_text("Different description")
+    expect(page.locator("#preview")).to_contain_text(summary["description"])
     page.get_by_role("button", name="Confirm registration").click()
     expect(page.locator("#registration-preview")).to_be_hidden()
     page.get_by_role("link", name="Open registered site").click()
     expect(page.locator("#status")).to_contain_text(summary["address"])
-    expect(page.locator("#readings")).to_contain_text("No accepted readings")
     page.get_by_label("Address", exact=True).fill("Explicit new address\nline 2")
     page.get_by_role("button", name="Save metadata").click()
     expect(page.get_by_role("dialog")).to_be_visible()
@@ -171,23 +174,23 @@ def test_registration_success_clears_secrets_before_failed_refresh(server_browse
                 status=401 if refresh_failure == "expired" else 503, json={"error": {"code": code}}
             )
     if refresh_failure == "expired":
-        expect(page.locator("#error")).to_have_text("Login expired. Log in again to continue.")
-        expect(page.get_by_role("link", name="Log in again")).to_be_visible()
+        expect(page.get_by_role("heading", name="Server login")).to_be_visible()
+        assert summary["token"] not in page.content()
+        expect(page.locator("#registration-result")).to_have_count(0)
     else:
-        expect(page.locator("#error")).to_contain_text(
+        expect(page.locator("#refresh-error")).to_contain_text(
             "Registration applied, but status could not be refreshed"
         )
-    expect(page.locator("#registration-result")).to_contain_text(summary["site_id"])
-    expect(page.get_by_role("link", name="Open registered device")).to_have_attribute(
-        "href", "/devices/" + summary["device_id"]
-    )
+        expect(page.locator("#registration-result")).to_contain_text(summary["site_id"])
+        expect(page.get_by_role("link", name="Open registered device")).to_have_attribute(
+            "href", "/devices/" + summary["device_id"]
+        )
+        # Even programmatic repeated actions cannot retain or resubmit the summary.
+        page.locator("#register").evaluate("button => button.click()")
+        page.wait_for_timeout(100)
+    assert len(commits) == 1
     response = page.request.get(origin + P + "/devices/" + summary["device_id"])
     assert response.ok
-    assert len(commits) == 1
-    # A hidden confirm button must also have no retained summary to resubmit.
-    page.locator("#register").evaluate("button => button.click()")
-    page.wait_for_timeout(100)
-    assert len(commits) == 1
     page.unroute("**/api/admin/v1/sites?*")
 
 
@@ -203,13 +206,13 @@ def test_registration_refresh_does_not_block_or_restore_old_state(server_browser
     if next_action == "preview":
         # A new registration can begin even while the previous status GET is pending.
         preview(page, raw)
-        expect(page.locator("#preview")).to_contain_text('"reuse"')
+        expect(page.locator("#preview")).to_contain_text("Reuse")
     else:
         page.get_by_role("button", name="Cancel registration").click()
         expect(page.locator("#registration-result")).to_be_empty()
-    with page.expect_response("**/api/admin/v1/sites?*"):
-        for route in held:
-            route.fulfill(status=503, json={"error": {"code": "temporarily_unavailable"}})
+    for route in held:
+        # The new owner cancels the old transport; a returned response must stay obsolete.
+        route.fulfill(status=503, json={"error": {"code": "temporarily_unavailable"}})
     page.wait_for_timeout(100)
     expect(page.locator("#error")).to_be_hidden()
     if next_action == "preview":
@@ -309,6 +312,7 @@ def test_device_creation_grants_confirmations_errors_and_expiry(server_browser):
     expect(page.get_by_role("dialog")).to_contain_text("Pending Logger records")
     expect(page.get_by_role("dialog")).to_contain_text("Historical readings remain")
     page.keyboard.press("Escape")
+    expect(page.get_by_role("button", name="Revoke grant")).to_be_focused()
     expect(page.get_by_role("button", name="Revoke grant")).to_have_count(1)
     page.get_by_role("button", name="Revoke grant").click()
     page.get_by_role("button", name="Confirm", exact=True).click()
@@ -322,17 +326,19 @@ def test_device_creation_grants_confirmations_errors_and_expiry(server_browser):
     page.get_by_role("button", name="Disable credential").click()
     page.get_by_role("button", name="Confirm", exact=True).click()
     expect(page.get_by_role("button", name="Disable credential")).to_have_count(0)
-    page.goto(origin)
+    page.goto(origin + "/registration")
     page.get_by_label("Logger registration JSON").fill(raw)
     page.get_by_role("button", name="Preview registration").click()
-    expect(page.locator("#error")).to_contain_text("registration_conflict")
+    expect(page.locator("#error")).to_contain_text("Registration conflicts")
     # Separate site/device creation and first credential use the same guarded APIs.
     new_site, new_device = str(uuid4()), str(uuid4())
-    page.get_by_text("Create site separately", exact=True).click()
+    page.goto(origin + "/sites")
+    expect(page.get_by_role("heading", name="Create site separately")).to_be_visible()
     page.locator('#create-site input[name="site_id"]').fill(new_site)
     page.locator('#create-site textarea[name="address"]').fill("Separate synthetic site")
     page.get_by_role("button", name="Create site", exact=True).click()
     expect(page.locator("#sites")).to_contain_text(new_site)
+    page.goto(origin + "/devices")
     page.get_by_label("Device UUID", exact=True).fill(new_device)
     page.get_by_role("button", name="Create device", exact=True).click()
     expect(page.locator("#devices")).to_contain_text(new_device)
@@ -345,7 +351,7 @@ def test_device_creation_grants_confirmations_errors_and_expiry(server_browser):
     expect(page.locator("#grants")).to_contain_text(new_site)
     # Finish the dashboard startup refresh before exercising an explicit retry.
     # Otherwise retry can correctly coalesce with a request admitted before auth.clear().
-    page.goto(origin, wait_until="networkidle")
+    page.goto(origin + "/registration", wait_until="networkidle")
     page.route(
         "**/registrations/preview",
         lambda route: route.fulfill(
@@ -354,13 +360,12 @@ def test_device_creation_grants_confirmations_errors_and_expiry(server_browser):
     )
     page.get_by_label("Logger registration JSON").fill(raw)
     page.get_by_role("button", name="Preview registration").click()
-    expect(page.locator("#error")).to_contain_text("temporarily_unavailable")
+    expect(page.locator("#error")).to_contain_text("Server is temporarily unavailable")
     page.unroute("**/registrations/preview")
     app.state.auth.clear()
-    page.get_by_role("button", name="Reload status / retry").click()
-    expect(page.locator("#error")).to_have_text("Login expired. Log in again to continue.")
-    assert page.locator("#summary").input_value() == ""
-    expect(page.get_by_role("link", name="Log in again")).to_be_visible()
+    page.get_by_role("link", name="Devices", exact=True).first.click()
+    expect(page.get_by_role("heading", name="Server login")).to_be_visible()
+    assert summary["token"] not in page.content()
 
 
 def test_late_preview_cancel_navigation_and_theme(server_browser):
@@ -375,6 +380,7 @@ def test_late_preview_cancel_navigation_and_theme(server_browser):
         held.append((route, route.fetch()))
 
     page.route("**/registrations/preview", hold)
+    page.goto(origin + "/registration")
     page.get_by_label("Logger registration JSON").fill(raw)
     page.get_by_role("button", name="Preview registration").click()
     page.wait_for_function("document.querySelector('#summary').value.length > 0")
@@ -388,12 +394,54 @@ def test_late_preview_cancel_navigation_and_theme(server_browser):
     assert summary["token"] not in page.content()
     page.unroute("**/registrations/preview")
     preview(page, raw)
-    page.get_by_role("link", name="Dashboard", exact=True).click()
-    expect(page.locator("#registration-preview")).to_be_hidden()
+    page.get_by_role("link", name="Devices", exact=True).first.click()
+    expect(page.locator("#registration-preview")).to_have_count(0)
+    assert summary["token"] not in page.content()
+    page.get_by_role("link", name="Registration", exact=True).first.click()
     assert page.locator("#summary").input_value() == ""
     assert page.evaluate("Object.keys(sessionStorage)") == []
     assert page.evaluate("Object.keys(localStorage)") == ["watt-profile-theme"]
+    page.get_by_role("link", name="Devices", exact=True).first.click()
     expect(page.locator("#devices")).to_contain_text("No devices found")
+
+
+def test_login_safe_errors_and_theme(server_browser):
+    page, origin, _, _, _, _ = server_browser
+    page.goto(origin + "/login")
+    expect(page.locator("html")).to_have_attribute("data-theme", "dark")
+    page.get_by_role("button", name="Switch to light mode").click()
+    page.get_by_label("Username").fill("admin")
+    page.get_by_label("Password").fill("wrong-synthetic-password")
+    page.get_by_role("button", name="Log in", exact=True).click()
+    expect(page.locator("#error")).to_contain_text("Administrator credentials are invalid")
+    assert page.get_by_label("Password").input_value() == ""
+    page.get_by_role("link", name="Reload login form").click()
+    expect(page.locator("html")).to_have_attribute("data-theme", "light")
+    page.locator('input[name="csrf"]').first.evaluate("e => e.value='expired-synthetic-form'")
+    page.get_by_label("Username").fill("admin")
+    page.get_by_label("Password").fill("synthetic-password-long-enough")
+    page.get_by_role("button", name="Log in", exact=True).click()
+    expect(page.locator("#error")).to_contain_text("Login form expired")
+    assert page.get_by_label("Password").input_value() == ""
+    page.route(
+        "**/login",
+        lambda route: (
+            route.fulfill(status=429, json={"error": {"code": "login_throttled"}})
+            if route.request.method == "POST"
+            else route.continue_()
+        ),
+    )
+    page.get_by_label("Password").fill("synthetic-password-long-enough")
+    page.get_by_role("button", name="Log in", exact=True).click()
+    expect(page.locator("#error")).to_contain_text("Wait one minute")
+    assert page.get_by_label("Password").input_value() == ""
+
+
+def test_workspace_status_polling(server_browser):
+    page, origin, _, _, _, _ = server_browser
+    page.clock.install()
+    page.goto(origin)
+    expect(page.locator("#status-updated")).to_be_visible()
     # Hidden status polling is paused, and simultaneous refreshes cannot overlap.
     page.evaluate("""() => {
       window.pollStats={active:0,max:0,count:0}; const original=fetch;
@@ -413,38 +461,246 @@ def test_late_preview_cancel_navigation_and_theme(server_browser):
       document.dispatchEvent(new Event('visibilitychange'));
       document.querySelector('#reload').click(); document.querySelector('#reload').click();
     }""")
-    page.wait_for_timeout(500)
+    page.clock.run_for(500)
+    expect(page.locator("#status-updated")).to_be_visible()
     assert page.evaluate("window.pollStats.count") == 1
     assert page.evaluate("window.pollStats.max") == 1
+    page.wait_for_function("window.pollStats.active === 0")
+    page.clock.run_for(9500)
+    page.wait_for_function("window.pollStats.count === 2")
+    page.clock.run_for(500)
+    page.wait_for_function("window.pollStats.active === 0")
+    page.get_by_role("button", name="Pause automatic refresh").click()
+    page.clock.run_for(20000)
+    assert page.evaluate("window.pollStats.count") == 2
+    page.get_by_role("button", name="Resume automatic refresh").click()
+    page.clock.run_for(10000)
+    page.wait_for_function("window.pollStats.count === 3")
+    page.clock.run_for(500)
+    page.wait_for_function("window.pollStats.active === 0")
+    page.evaluate("""() => {
+      Object.defineProperty(document,'hidden',{value:true,configurable:true});
+      document.dispatchEvent(new Event('visibilitychange'));
+    }""")
+    page.clock.run_for(20000)
+    assert page.evaluate("window.pollStats.count") == 3
 
 
-def test_login_safe_errors_and_theme(server_browser):
-    page, origin, _, _, _, _ = server_browser
-    page.goto(origin + "/login")
-    expect(page.locator("html")).to_have_attribute("data-theme", "dark")
-    page.get_by_role("button", name="Switch to light mode").click()
-    page.get_by_label("Username").fill("admin")
-    page.get_by_label("Password").fill("wrong-synthetic-password")
-    page.get_by_role("button", name="Log in", exact=True).click()
-    expect(page.locator("#error")).to_contain_text("Administrator credentials are invalid")
-    assert page.get_by_label("Password").input_value() == ""
-    page.get_by_role("link", name="Reload login form").click()
-    expect(page.locator("html")).to_have_attribute("data-theme", "light")
-    page.locator('input[name="csrf"]').evaluate("e => e.value='expired-synthetic-form'")
-    page.get_by_label("Username").fill("admin")
-    page.get_by_label("Password").fill("synthetic-password-long-enough")
-    page.get_by_role("button", name="Log in", exact=True).click()
-    expect(page.locator("#error")).to_contain_text("Login form expired")
-    assert page.get_by_label("Password").input_value() == ""
+def test_management_polling_preserves_drafts_failure_timestamp_and_stops_on_expiry(server_browser):
+    page, origin, _, raw, summary, _ = server_browser
+    page.clock.install()
+    register(page, raw)
+    for path, field, draft in [
+        ("/sites/" + summary["site_id"], "Address", "Unsaved synthetic site draft"),
+        ("/devices/" + summary["device_id"], "Display name", "Unsaved synthetic device draft"),
+    ]:
+        page.goto(origin + path)
+        expect(page.locator("#status-updated time")).to_be_visible()
+        page.get_by_label(field, exact=True).fill(draft)
+        endpoint = "**/api/admin/v1" + path
+        held = []
+        page.route(
+            endpoint,
+            lambda route: (
+                held.append(route) if route.request.method == "GET" else route.continue_()
+            ),
+        )
+        page.clock.run_for(10000)
+        page.wait_for_timeout(50)
+        assert len(held) == 1
+        page.clock.run_for(10000)
+        assert len(held) == 1  # A slow read cannot overlap another poll.
+        held.pop().continue_()
+        expect(page.locator("#status-error")).to_have_count(0)
+        page.wait_for_timeout(100)
+        expect(page.get_by_label(field, exact=True)).to_have_value(draft)
+        previous = page.locator("#status-updated time").get_attribute("datetime")
+        previous_status = page.locator("#status").inner_text()
+        page.clock.run_for(10000)
+        page.wait_for_timeout(50)
+        assert len(held) == 1
+        held.pop().fulfill(status=503, json={"error": {"code": "unavailable"}})
+        expect(page.locator("#status-error")).to_be_visible()
+        assert page.locator("#status-updated time").get_attribute("datetime") == previous
+        assert page.locator("#status").inner_text() == previous_status
+        expect(page.get_by_label(field, exact=True)).to_have_value(draft)
+        if path.startswith("/sites/"):
+            # A successful PATCH followed by a failed GET must not remount old fields.
+            page.get_by_role("button", name="Save metadata", exact=True).click()
+            page.get_by_role("button", name="Confirm", exact=True).click()
+            page.wait_for_timeout(100)
+            assert len(held) == 1
+            held.pop().fulfill(status=503, json={"error": {"code": "unavailable"}})
+            expect(page.get_by_text("Metadata saved.", exact=True)).to_be_visible()
+            expect(page.get_by_label(field, exact=True)).to_have_value(draft)
+            assert page.locator("#status-updated time").get_attribute("datetime") == previous
+        page.unroute(endpoint)
+    # Visibility and poll cancellation own reads only, never the pending mutation.
+    mutation_routes = []
+    mutation_failures = []
     page.route(
-        "**/login",
+        "**/api/admin/v1/devices/" + summary["device_id"],
         lambda route: (
-            route.fulfill(status=429, json={"error": {"code": "login_throttled"}})
-            if route.request.method == "POST"
-            else route.continue_()
+            mutation_routes.append(route) if route.request.method == "PATCH" else route.continue_()
         ),
     )
-    page.get_by_label("Password").fill("synthetic-password-long-enough")
-    page.get_by_role("button", name="Log in", exact=True).click()
-    expect(page.locator("#error")).to_contain_text("Wait one minute")
-    assert page.get_by_label("Password").input_value() == ""
+    page.on("requestfailed", lambda request: mutation_failures.append(request.method))
+    page.get_by_role("button", name="Save display name", exact=True).click()
+    page.wait_for_timeout(50)
+    assert len(mutation_routes) == 1
+    page.evaluate("""() => {
+      Object.defineProperty(document,'hidden',{value:true,configurable:true});
+      document.dispatchEvent(new Event('visibilitychange'));
+    }""")
+    page.clock.run_for(10000)
+    assert len(mutation_routes) == 1
+    assert "PATCH" not in mutation_failures
+    page.evaluate("""() => {
+      Object.defineProperty(document,'hidden',{value:false,configurable:true});
+      document.dispatchEvent(new Event('visibilitychange'));
+    }""")
+    mutation_routes.pop().continue_()
+    expect(
+        page.get_by_role("heading", name="Unsaved synthetic device draft", exact=True)
+    ).to_be_visible()
+    # Device-list contact status also refreshes; 401 returns to login and stops all polls.
+    page.goto(origin + "/devices")
+    expect(page.locator("#status-updated")).to_be_visible()
+    requests = []
+
+    def expired(route):
+        requests.append(route.request.url)
+        route.fulfill(status=401, json={"error": {"code": "authentication_required"}})
+
+    page.route("**/api/admin/v1/devices?*", expired)
+    page.clock.run_for(10000)
+    expect(page.get_by_role("heading", name="Server login")).to_be_visible()
+    page.clock.run_for(30000)
+    assert len(requests) == 1
+    assert "Unsaved synthetic" not in page.content()
+
+
+def test_names_search_pagination_and_selected_language_validation(server_browser):
+    page, origin, _, raw, summary, _ = server_browser
+    register(page, raw)
+    page.get_by_role("link", name="Open registered site").click()
+    page.get_by_label("Display name", exact=True).fill("Synthetic <b> %_ name")
+    page.get_by_role("button", name="Save metadata").click()
+    expect(page.get_by_role("dialog")).to_contain_text("Site UUID and historical readings")
+    page.get_by_role("button", name="Confirm", exact=True).click()
+    expect(page.locator("#status")).to_contain_text("Synthetic <b> %_ name")
+    register(page, raw)
+    expect(page.locator("#registration-result")).to_contain_text("Synthetic <b> %_ name")
+    page.goto(origin)
+    page.get_by_label("Search name or address", exact=True).fill("%_")
+    page.get_by_role("button", name="Search", exact=True).click()
+    expect(page.locator("#sites tr")).to_have_count(1)
+    expect(page.locator("#sites")).to_contain_text(summary["site_id"])
+    page.reload()
+    expect(page.get_by_label("Search name or address", exact=True)).to_have_value("%_")
+    page.get_by_label("Search by", exact=True).select_option("site_id")
+    page.get_by_label("Search name or address", exact=True).fill(summary["site_id"])
+    page.get_by_role("button", name="Search", exact=True).click()
+    expect(page.locator("#sites")).to_contain_text(summary["site_id"])
+    # Seed only this fixture's disposable synthetic database through guarded APIs.
+    csrf = page.locator('meta[name="csrf-token"]').get_attribute("content")
+    for index in range(21):
+        response = page.request.post(
+            origin + P + "/sites",
+            headers={"X-CSRF-Token": csrf},
+            data={"site_id": str(uuid4()), "display_name": f"Page {index:02}"},
+        )
+        assert response.ok
+    page.goto(origin)
+    expect(page.locator("#sites tr")).to_have_count(20)
+    expect(page.get_by_text("Total: 22 · Offset: 0", exact=True)).to_be_visible()
+    page.get_by_role("button", name="Next", exact=True).click()
+    expect(page.locator("#sites tr")).to_have_count(2)
+    expect(page.get_by_text("Total: 22 · Offset: 20", exact=True)).to_be_visible()
+    page.reload()
+    expect(page.locator("#sites tr")).to_have_count(2)
+    # Selected language controls validation even though Chromium is English.
+    page.get_by_label("Language").select_option("zh")
+    page.get_by_role("button", name="创建站点", exact=True).click()
+    expect(page.get_by_role("alert")).to_contain_text("请检查表单内容后重试")
+    expect(page.locator('#create-site input[name="site_id"]')).to_be_focused()
+    page.locator('#create-site input[name="site_id"]').fill("invalid-synthetic-uuid")
+    page.get_by_role("button", name="创建站点", exact=True).click()
+    expect(page.get_by_role("alert")).to_contain_text("请检查表单内容后重试")
+    page.get_by_label("语言").select_option("en")
+    page.goto(origin + "/devices/" + summary["device_id"])
+    page.get_by_label("Display name", exact=True).fill("Named synthetic device")
+    page.get_by_role("button", name="Save display name", exact=True).click()
+    expect(page.get_by_role("heading", name="Named synthetic device", exact=True)).to_be_visible()
+    page.reload()
+    expect(page.get_by_label("Display name", exact=True)).to_have_value("Named synthetic device")
+    page.get_by_label("Display name", exact=True).fill("")
+    page.get_by_role("button", name="Save display name", exact=True).click()
+    expect(page.get_by_role("heading", name=summary["device_id"][:8], exact=True)).to_be_visible()
+
+
+def test_mutation_duplicate_guards_and_first_token_failure_cleanup(server_browser):
+    page, origin, _, raw, summary, _ = server_browser
+    register(page, raw)
+    page.get_by_role("link", name="Open registered device").click()
+    page.get_by_role("button", name="Revoke grant").click()
+    held = []
+    page.route("**/devices/*/sites/*", lambda route: held.append(route))
+    page.get_by_role("button", name="Confirm", exact=True).evaluate(
+        "button => {button.click(); button.click()}"
+    )
+    page.wait_for_timeout(100)
+    assert len(held) == 1
+    held.pop().fulfill(status=503, json={"error": {"code": "temporarily_unavailable"}})
+    expect(page.get_by_role("alert")).to_contain_text("Server is temporarily unavailable")
+    # Failed mutations remain explicit; a retry is a deliberate second click.
+    expect(page.get_by_role("dialog")).to_be_hidden()
+    expect(page.locator("#grants")).to_contain_text(summary["site_id"])
+    page.unroute("**/devices/*/sites/*")
+    device_id = str(uuid4())
+    csrf = page.locator('meta[name="csrf-token"]').get_attribute("content")
+    assert page.request.post(
+        origin + P + "/devices",
+        headers={"X-CSRF-Token": csrf},
+        data={"device_id": device_id},
+    ).ok
+    page.goto(origin + "/devices/" + device_id)
+    held = []
+    page.route("**/devices/*/credentials", lambda route: held.append(route))
+    page.get_by_label("First credential Token").fill("c" * 43)
+    page.locator("#first-credential").evaluate(
+        "form => {form.requestSubmit();form.requestSubmit()}"
+    )
+    page.wait_for_timeout(100)
+    assert len(held) == 1
+    assert page.get_by_label("First credential Token").input_value() == ""
+    held.pop().fulfill(status=503, json={"error": {"code": "temporarily_unavailable"}})
+    expect(page.get_by_role("alert")).to_contain_text("Server is temporarily unavailable")
+    assert page.get_by_label("First credential Token").input_value() == ""
+    assert "c" * 43 not in page.content()
+    page.unroute("**/devices/*/credentials")
+
+
+def test_late_preview_navigation_and_registration_expiry_clear_memory(server_browser):
+    page, origin, app, raw, summary, _ = server_browser
+    page.goto(origin + "/registration")
+    held = []
+    page.route("**/registrations/preview", lambda route: held.append((route, route.fetch())))
+    page.get_by_label("Logger registration JSON").fill(raw)
+    page.get_by_role("button", name="Preview registration").click()
+    page.wait_for_timeout(100)
+    assert held
+    page.get_by_role("link", name="Devices", exact=True).first.click()
+    for route, response in held:
+        route.fulfill(response=response)
+    page.get_by_role("link", name="Registration", exact=True).first.click()
+    expect(page.locator("#registration-preview")).to_be_hidden()
+    assert page.locator("#summary").input_value() == ""
+    assert summary["token"] not in page.content()
+    page.unroute("**/registrations/preview")
+    preview(page, raw)
+    app.state.auth.clear()
+    page.get_by_role("button", name="Confirm registration").click()
+    expect(page.get_by_role("heading", name="Server login")).to_be_visible()
+    assert summary["token"] not in page.content()
+    assert page.locator("#registration-preview").count() == 0

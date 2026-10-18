@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { FormEvent } from 'react'
-import { Link, NavLink, Route, Routes, useLocation, useParams } from 'react-router-dom'
+import { Link, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import { Button, NavigationDialog } from './components/ui'
-import { APIClient, APIError } from './lib/api'
+import { Devices, DeviceView, Registration, Sites, SiteView } from './Management'
+import { APIClient } from './lib/api'
 import { initialLanguage, initialTheme, resources, savePreference } from './i18n'
 import type { Language } from './i18n'
 
@@ -41,23 +42,7 @@ export function App() {
   }, [client])
   const preferences = <div className="preferences"><label><span className="sr-only">{t.language}</span><select aria-label={t.language} value={language} onChange={event => { const value = event.target.value as Language; setLanguage(value); savePreference('language', value) }}><option value="en">English</option><option value="zh">中文</option></select></label><Button id="theme-toggle" onClick={() => { const value = theme === 'dark' ? 'light' : 'dark'; setTheme(value); savePreference('theme', value) }}>{theme === 'dark' ? t.light : t.dark}</Button></div>
   const nav = <nav aria-label={t.menu}>{[['/', t.sites], ['/devices', t.devices], ['/registration', t.registration]].map(([path, label]) => <NavLink key={path} to={path} end={path === '/'} className={({ isActive }) => isActive || (path === '/' && location.pathname.startsWith('/sites')) ? 'active' : ''}>{label}</NavLink>)}</nav>
-  return <><a className="skip-link" href="#content">{t.skip}</a><header className="app-header"><div className="brand">W<span aria-hidden="true"> / </span>PROFILE</div><h1>{login ? t.login : t.app}</h1>{preferences}{!login && !expired && <form method="post" action="/logout" onSubmit={() => client.clear()}><input type="hidden" name="csrf" value={csrf()} /><Button type="submit">{t.logout}</Button></form>}</header>{login ? <main id="content" className="login-main"><Login language={language} /></main> : !expired && !closed && <div className="workspace"><aside className="sidebar">{nav}<p>{t.workbench}</p></aside><div className="mobile-navigation"><NavigationDialog title={t.menu} closeLabel={t.close}>{nav}</NavigationDialog></div><main id="content" className="content" tabIndex={-1}><Routes><Route path="/" element={<Shell title={t.sites} language={language} client={client} />} /><Route path="/sites" element={<Shell title={t.sites} language={language} client={client} />} /><Route path="/devices" element={<Shell title={t.devices} language={language} client={client} />} /><Route path="/registration" element={<Shell title={t.registration} language={language} client={client} />} /><Route path="/sites/:id" element={<Shell title={t.site} language={language} client={client} />} /><Route path="/devices/:id" element={<Shell title={t.device} language={language} client={client} />} /><Route path="*" element={<><h2>{t.notFound}</h2><Link to="/">{t.home}</Link></>} /></Routes></main></div>}</>
-}
-function Shell({ title, language, client }: { title: string, language: Language, client: APIClient }) {
-  const t = resources[language]
-  const { id } = useParams()
-  const location = useLocation()
-  const [state, setState] = useState('checking')
-  const [attempt, setAttempt] = useState(0)
-  useEffect(() => {
-    const owner = client.owner()
-    setState('checking')
-    // A lightweight authenticated probe only; business views own their later queries.
-    void owner.run(signal => client.request('/api/admin/v1/devices?limit=1', { signal })).then(() => setState('connected')).catch(error => { if (error.name !== 'AbortError') setState(error instanceof APIError ? error.code : 'unknown') })
-    return () => client.release(owner)
-  }, [client, location.key, attempt])
-  const error = state !== 'checking' && state !== 'connected'
-  return <><div className="page-heading"><span className="eyebrow">{t.workspaceEyebrow}</span><h2>{title}</h2>{id && <p className="identifier">{id}</p>}</div><section className="neon-panel" aria-label={t.shell}><div className="panel-heading"><span className="panel-mark" aria-hidden="true">◇</span><h3>{t.shell}</h3></div><p>{t.pending}</p><p role={error ? 'alert' : 'status'}>{error ? t.errors[state as keyof typeof t.errors] ?? t.errors.unknown : t[state as 'checking' | 'connected']}</p>{error && <Button onClick={() => setAttempt(value => value + 1)}>{t.retry}</Button>}</section></>
+  return <><a className="skip-link" href="#content">{t.skip}</a><header className="app-header"><div className="brand">W<span aria-hidden="true"> / </span>PROFILE</div><h1>{login ? t.login : t.app}</h1>{preferences}{!login && !expired && <form method="post" action="/logout" onSubmit={() => client.clear()}><input type="hidden" name="csrf" value={csrf()} /><Button type="submit">{t.logout}</Button></form>}</header>{login ? <main id="content" className="login-main"><Login language={language} /></main> : !expired && !closed && <div className="workspace"><aside className="sidebar">{nav}<p>{t.workbench}</p></aside><div className="mobile-navigation"><NavigationDialog title={t.menu} closeLabel={t.close}>{nav}</NavigationDialog></div><main id="content" className="content" tabIndex={-1}><Routes><Route path="/" element={<Sites language={language} client={client} />} /><Route path="/sites" element={<Sites language={language} client={client} />} /><Route path="/devices" element={<Devices language={language} client={client} />} /><Route path="/registration" element={<Registration language={language} client={client} />} /><Route path="/sites/:id" element={<SiteView language={language} client={client} />} /><Route path="/devices/:id" element={<DeviceView language={language} client={client} />} /><Route path="*" element={<><h2>{t.notFound}</h2><Link to="/">{t.home}</Link></>} /></Routes></main></div>}</>
 }
 function Login({ language }: { language: Language }) {
   const t = resources[language]

@@ -71,3 +71,17 @@ test('clear aborts direct mutations and publishes a sensitive state reset', asyn
   await assert.rejects(pending, { name: 'AbortError' })
   unsubscribe()
 })
+test('a timed-out mutation reports uncertainty without retrying', async t => {
+  const originalFetch = globalThis.fetch, originalTimer = globalThis.setTimeout
+  t.after(() => { globalThis.fetch = originalFetch; globalThis.setTimeout = originalTimer })
+  globalThis.setTimeout = callback => originalTimer(callback, 1)
+  let calls = 0
+  globalThis.fetch = async (_path, { signal }) => {
+    calls++
+    return new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(new DOMException('Timeout', 'AbortError')), { once: true }))
+  }
+  const client = new APIClient('synthetic', () => assert.fail('not expired'))
+  await assert.rejects(client.request('/api/admin/v1/sites', { method: 'POST', body: '{}' }), error => error instanceof APIError && error.code === 'timeout')
+  assert.equal(calls, 1)
+  assert.equal(client.isClosed(), false)
+})
