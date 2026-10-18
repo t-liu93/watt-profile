@@ -2,7 +2,9 @@
 
 > **English** · [中文](architecture-and-roadmap_zh.md)
 
-Status: **M1–M4 accepted; MVP complete by owner decision, 2026-10-18.** Software, complete CI and native container checks passed. The owner accepted the browser walkthrough, Server deployment/backup and alpha.3 Pi operation: preserved data, real backlog cleared, and concurrent collection/new-reading upload without further reported errors. The [M4 final acceptance](milestone/m4.md#final-owner-acceptance-and-mvp-closure-2026-10-18) records evidence limits and the closure decision. The next session will address Server data presentation and additional features.
+Status: **M1–M4 accepted; MVP complete by owner decision, 2026-10-18.** Software, complete CI and native container checks passed. The owner accepted the browser walkthrough, Server deployment/backup and alpha.3 Pi operation: preserved data, real backlog cleared, and concurrent collection/new-reading upload without further reported errors. The [M4 final acceptance](milestone/m4.md#final-owner-acceptance-and-mvp-closure-2026-10-18) records evidence limits and the closure decision. The [Post-MVP roadmap](post-mvp-roadmap.md) defines the agreed M5 analysis workspace and subsequent direction; implementation has not started.
+
+This document maintains system boundaries and cross-stage architecture. The [MVP roadmap](mvp-roadmap.md) retains completed M1–M4 scope and closure; the [Post-MVP roadmap](post-mvp-roadmap.md) is the ongoing home for future priorities, stage sequencing, and high-level scope changes. Detailed designs, contracts, tasks, and acceptance records remain under `docs/milestone/`.
 
 The [CI and container release workflow](ci-and-release.md) runs complete synthetic checks, including four-week capacity, and publishes native-tested AMD64/ARM64 Logger and Server images on version tags. Logger alpha.3 includes upload/recovery and the backlog performance repair; Server alpha.2 remains compatible. Alpha.1 is unchanged and pre-M4.
 
@@ -23,7 +25,7 @@ The MVP provides reliable collection and delivery, manual site/device registrati
 | --- | --- | --- |
 | Runtime and deployment | Docker Compose on the owner's Linux home server; publish one configurable application HTTP port. The owner's existing host/upstream Nginx provides HTTPS termination and reverse proxying; the project bundles no proxy or certificate management. | Raspberry Pi OS Lite 64-bit and an ARM64 container on the owner's Pi 4; additional Pi models await validation. One Python application process owns collection, upload, and the local API. |
 | Backend | Python and FastAPI for ingest, registration, queries, exports, and authentication. A separate report worker is added later. | Python and FastAPI for local setup and read tests; `pyserial` handles P1. `pymodbus` belongs to the later Modbus extension. The existing protocol code is a starting point, not a finished Logger service. |
-| Frontend | Backend-served HTML forms, lists, and tables for MVP. React, TypeScript, and Vite remain options for later charts and report review. | Simple HTML and minimal JavaScript served by Python. Node.js does not run on the Pi. |
+| Frontend | The implemented MVP serves HTML forms, lists, and tables from the backend. M5 has selected React, TypeScript, and Vite, with English/Chinese switching; implementation is pending. Built assets will ship in the Server image and be served by FastAPI on the same origin. | Simple HTML and minimal JavaScript served by Python. Node.js does not run on the Pi. |
 | Storage | PostgreSQL holds devices, sites, sessions, authorizations, and snapshots. Common metrics and timestamps are queryable columns; remaining sanitized fields can be JSONB. Accepted snapshots are retained for at least one year. Report storage is added later. | SQLite in a persistent volume holds configuration, snapshots, and upload state. Capacity must support at least four offline weeks. Keep the whole session locally; manually clean up only uploaded records from completed sessions. |
 | AI | Deferred beyond MVP. A future separate worker calls OpenRouter's Responses API with a configurable model and preserves input statistics, model/prompt versions, and reports for review. | No model runtime or model API key. |
 
@@ -42,7 +44,7 @@ The future report worker must not block ingest; its job state can live in Postgr
 
 ## Roadmap and validation
 
-The MVP proceeds by dependency: **M1 protocol and contracts → M2 standalone Logger → M3 manually managed server → M4 integrated pilot release**. Acceptance checks and estimates are in the [MVP roadmap](mvp-roadmap.md). Later work adds charts and deterministic analysis, AI reports, Modbus, and provisioning/operations improvements.
+The accepted MVP proceeded by dependency: **M1 protocol and contracts → M2 standalone Logger → M3 manually managed server → M4 integrated pilot release**. Its original acceptance checks and estimates remain in the [MVP roadmap](mvp-roadmap.md). The [Post-MVP roadmap](post-mvp-roadmap.md) maintains ongoing direction: **M5 Server analysis workspace → M6 analysis reports**, with device, design-assistance, and operational extensions scheduled by actual need. Keep evolving priorities and high-level scope changes there rather than duplicating them here.
 
 The original pilot checklist below remains the reference for validation with synthetic or sanitized samples and isolated services. Final owner acceptance and unrecorded measurements are distinguished in the M4 closure record:
 

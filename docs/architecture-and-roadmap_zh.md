@@ -2,7 +2,9 @@
 
 > [English](architecture-and-roadmap.md) · **中文**
 
-状态：**所有者于 2026-10-18 验收 M1–M4，MVP 已完成。** 软件、完整 CI 及原生容器检查通过。所有者验收页面走查、Server 部署／备份及 alpha.3 Pi 运行：数据保留、真实积压清零，采集／新读数上传并行且未再报错。[M4 最终验收](milestone/m4_zh.md#所有者最终验收与-mvp-结项2026-10-18)记录证据限制与结项决定。新 session 将处理 Server 数据展示及额外功能。
+状态：**所有者于 2026-10-18 验收 M1–M4，MVP 已完成。** 软件、完整 CI 及原生容器检查通过。所有者验收页面走查、Server 部署／备份及 alpha.3 Pi 运行：数据保留、真实积压清零，采集／新读数上传并行且未再报错。[M4 最终验收](milestone/m4_zh.md#所有者最终验收与-mvp-结项2026-10-18)记录证据限制与结项决定。[Post-MVP 路线图](post-mvp-roadmap_zh.md)记录已确定的 M5 分析工作台及后续方向，实现尚未开始。
+
+本文维护系统边界与跨阶段架构。[MVP 路线图](mvp-roadmap_zh.md)保留已完成的 M1–M4 范围和结项信息；[Post-MVP 路线图](post-mvp-roadmap_zh.md)是后续优先级、阶段顺序及高层范围调整的持续维护入口。详细设计、契约、任务和验收记录继续放在 `docs/milestone/` 下。
 
 [CI 与容器发布流程](ci-and-release_zh.md)执行完整合成检查，含四周容量，并在版本 tag 上发布原生测试通过的 AMD64／ARM64 Logger、Server 镜像。Logger alpha.3 包含上传／恢复及积压性能修复；Server alpha.2 保持兼容。alpha.1 未变，仍为 M4 前版本。
 
@@ -23,7 +25,7 @@ MVP 提供可靠采集与回传、现场／设备人工登记、状态、基本�
 | --- | --- | --- |
 | 运行与部署 | 在所有者家中的 Linux 服务器上使用 Docker Compose；应用发布一个可配置 HTTP 端口，HTTPS termination/反代由所有者现有宿主机或上游 Nginx 负责，项目不内置反代或管理证书。 | 所有者 Pi 4 使用 Raspberry Pi OS Lite 64 位和 ARM64 容器，其他 Pi 型号待验证。一个 Python 应用进程负责采集、上传和本地 API。 |
 | 后端 | Python 与 FastAPI 处理接收、登记、查询、导出和鉴权；后续增加独立报告 worker。 | Python 与 FastAPI 提供本地配置和试读，P1 使用 `pyserial`。`pymodbus` 属于后续 Modbus 扩展。原协议代码是起点，并非已完成的 Logger 服务。 |
-| 前端 | MVP 由后端提供 HTML 表单、列表和数据表；React、TypeScript、Vite 作为后续图表及报告审阅选项。 | Python 提供简单 HTML 和少量 JavaScript；Pi 上不运行 Node.js。 |
+| 前端 | 已实现的 MVP 由后端提供 HTML 表单、列表和数据表。M5 已选定 React、TypeScript、Vite 及中英文切换，实现尚未开始。构建产物将随 Server 镜像交付，由 FastAPI 同源提供。 | Python 提供简单 HTML 和少量 JavaScript；Pi 上不运行 Node.js。 |
 | 存储 | PostgreSQL 保存设备、现场、会话、授权和快照。常用指标及时间使用可查询字段，其余脱敏字段可用 JSONB；接纳的快照至少保留一年。报告存储后续增加。 | SQLite 持久化卷保存配置、快照及上传状态，容量须支持至少四周离线；保留整次监测，仅手动清理已完成会话中的已上传记录。 |
 | AI | MVP 后再做。未来独立 worker 通过 OpenRouter Responses API 调用可配置模型，保留统计输入、模型／提示词版本和报告供审阅。 | 不运行模型，也不保存模型 API 密钥。 |
 
@@ -42,7 +44,7 @@ Logger 向配置的中心端 URL 批量回传：公网使用 HTTPS，也支持�
 
 ## 路线图与验证
 
-MVP 按依赖关系推进：**M1 协议与契约 → M2 独立 Logger → M3 人工纳管中心端 → M4 完整试点版本**。验收和估算见[MVP 路线图](mvp-roadmap_zh.md)。后续增加图表与确定性分析、AI 报告、Modbus，以及 provisioning／运维增强。
+已验收的 MVP 按依赖关系完成：**M1 协议与契约 → M2 独立 Logger → M3 人工纳管中心端 → M4 完整试点版本**。原始验收和估算保留在 [MVP 路线图](mvp-roadmap_zh.md)。[Post-MVP 路线图](post-mvp-roadmap_zh.md)维护后续方向：**M5 Server 分析工作台 → M6 分析报告**，设备、设计辅助和运维扩展按实际需求安排。持续变化的优先级和高层范围集中在该文档维护，不在本文重复展开。
 
 以下原试点清单保留为隔离服务中使用合成或脱敏样本的验证参考。M4 结项记录分别注明最终所有者验收及未记录的测量：
 

@@ -2,7 +2,7 @@
 
 > **English — source of truth** · [中文](mvp-roadmap_zh.md)
 
-Status, 2026-10-18: **M1–M4 are accepted; the MVP is complete by owner decision.** After deploying Logger alpha.3, the owner confirmed real backlog recovery to zero, continued collection/upload of new readings and no further reported errors during the observed run. Server alpha.2 deployment, HTTPS/login and manual local/remote backup were already verified. The [M4 closure record](milestone/m4.md#final-owner-acceptance-and-mvp-closure-2026-10-18) distinguishes reported acceptance from unrecorded timed/resource measurements. The next session will address Server data presentation and additional features; no further MVP implementation is scheduled here.
+Status, 2026-10-18: **M1–M4 are accepted; the MVP is complete by owner decision.** After deploying Logger alpha.3, the owner confirmed real backlog recovery to zero, continued collection/upload of new readings and no further reported errors during the observed run. Server alpha.2 deployment, HTTPS/login and manual local/remote backup were already verified. The [M4 closure record](milestone/m4.md#final-owner-acceptance-and-mvp-closure-2026-10-18) distinguishes reported acceptance from unrecorded timed/resource measurements. Ongoing development direction is maintained in the [Post-MVP roadmap](post-mvp-roadmap.md); no further MVP implementation is scheduled here.
 
 The [CI and container release workflow](ci-and-release.md) runs complete checks and publishes native-tested AMD64/ARM64 Logger and Server images on version tags. Logger alpha.3 includes M4 upload/backlog recovery, LOGGER-001 repair and LOGGER-002 performance repair; Server alpha.2 remains compatible. Alpha.1 is unchanged and remains pre-M4.
 
@@ -113,11 +113,8 @@ Run development checks against isolated services, temporary databases, and synth
 
 M4 closes only when its required checks pass. Deliver exact startup, configuration, registration, status interpretation, troubleshooting, and cleanup instructions. Continued multiweek field observation follows MVP delivery and is recorded separately.
 
-## 5. Follow-up roadmap and documentation
+## 5. Post-MVP handoff and documentation
 
-1. **Charts and deterministic analysis:** power trends, daily energy, import/export totals, coverage and missing periods. Calculate energy from cumulative readings within valid meter/session boundaries and distinguish sampled peaks from actual maxima.
-2. **AI report generation and review:** manually select a period, compute a sanitized statistics snapshot, generate narrative analysis in a separate worker, preserve the snapshot/model/prompt versions, review, and export PDF. Model failure must not affect collection or access to data.
-3. **Modbus collection:** add independently tested profiles and transports. Historical DDSU666 evidence is a starting point; DTSU666 needs its exact manual and device verification. Serial RTU and RTU over TCP are separate extensions.
-4. **Provisioning and operations:** automatic registration, remote configuration, upgrades, and richer React interfaces as operational needs become clear. Network administration remains outside the application unless separately agreed.
+This document retains the original M1–M4 scope, plans, and closure information. Maintain all ongoing Post-MVP direction, priorities, and high-level scope changes in the [Post-MVP roadmap](post-mvp-roadmap.md), starting with M5 Server analysis and then M6 reports. Device, design-assistance, and operational extensions are scheduled there according to actual need. Detailed milestone designs, contracts, atomic tasks, and acceptance records remain under `docs/milestone/`.
 
 Default MVP page language is English. Tracked project documents have equivalent English and Chinese versions, with English authoritative. Keep the paired architecture, roadmap, future task cards, and operation instructions aligned. Record future completion evidence in the relevant task/progress documents rather than treating planned work here as implemented.

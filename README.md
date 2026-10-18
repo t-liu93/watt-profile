@@ -2,13 +2,19 @@
 
 > **English — source of truth** · [中文](README_zh.md)
 
-Independent Python package for the Watt Profile P1 protocol and contracts.
+Watt Profile collects P1 electricity readings through a standalone Logger and stores them on a centralized Server for internal use.
+
+## Roadmaps
+
+- [MVP roadmap](docs/mvp-roadmap.md): completed M1–M4 scope and acceptance.
+- [Post-MVP roadmap](docs/post-mvp-roadmap.md): ongoing development direction, starting with the M5 Server analysis workspace, followed by M6 reports.
+- [High-level architecture](docs/architecture-and-roadmap.md): system boundaries and cross-stage technical principles. Detailed milestone designs and acceptance records remain under `docs/milestone/`.
 
 ## CI and published images
 
 Every push runs the synthetic CI suite, including the explicit four-week capacity selector. Version tags release separate Logger and Server images to GHCR for AMD64 and ARM64 after checks and native image tests pass. See [CI and release instructions](docs/ci-and-release.md). [Published `v0.1.0-alpha.3`](https://github.com/t-liu93/watt-profile/releases/tag/v0.1.0-alpha.3) fixes Logger backlog batch construction; alpha.2 introduced M4 upload/recovery and the LOGGER-001 repair. Alpha.1 remains unchanged and pre-M4.
 
-**M4 and the MVP are accepted by the owner, 2026-10-18.** The owner verified Server deployment, HTTPS/login and manual local/remote backup, upgraded the existing ARM64 Pi Logger to alpha.3 with its data preserved, and confirmed that the real backlog reached zero. Collection and upload then ran together: new pending records were confirmed and the uploader returned to idle, with no further reported errors. See the [M4 final acceptance and evidence limits](docs/milestone/m4.md#final-owner-acceptance-and-mvp-closure-2026-10-18) and [MVP roadmap](docs/mvp-roadmap.md). Follow-on work starts in a new session with Server data presentation and additional features.
+**M4 and the MVP are accepted by the owner, 2026-10-18.** The owner verified Server deployment, HTTPS/login and manual local/remote backup, upgraded the existing ARM64 Pi Logger to alpha.3 with its data preserved, and confirmed that the real backlog reached zero. Collection and upload then ran together: new pending records were confirmed and the uploader returned to idle, with no further reported errors. See the [M4 final acceptance and evidence limits](docs/milestone/m4.md#final-owner-acceptance-and-mvp-closure-2026-10-18) and [MVP roadmap](docs/mvp-roadmap.md). The [Post-MVP roadmap](docs/post-mvp-roadmap.md) defines the agreed next direction; implementation has not started.
 
 ## Development environment
 

@@ -2,13 +2,19 @@
 
 > [English](README.md) · **中文**
 
-Watt Profile P1 协议和数据契约的独立 Python 包。
+Watt Profile 通过独立 Logger 采集 P1 电力读数，并在中心 Server 存储，供内部人员使用。
+
+## 路线图
+
+- [MVP 路线图](docs/mvp-roadmap_zh.md)：已完成的 M1–M4 范围与验收。
+- [Post-MVP 路线图](docs/post-mvp-roadmap_zh.md)：持续维护的后续开发方向，从 M5 Server 分析工作台开始，随后推进 M6 报告。
+- [高层架构](docs/architecture-and-roadmap_zh.md)：系统边界和跨阶段技术原则。Milestone 详细设计与验收记录继续放在 `docs/milestone/` 下。
 
 ## CI 与发布镜像
 
 每次 push 执行合成数据 CI，包含显式四周容量 selector。版本 tag 在检查和原生镜像测试通过后，将独立 Logger、Server 的 AMD64／ARM64 镜像发布到 GHCR。参阅 [CI 与发布说明](docs/ci-and-release_zh.md)。[已发布的 `v0.1.0-alpha.3`](https://github.com/t-liu93/watt-profile/releases/tag/v0.1.0-alpha.3) 修复 Logger 积压组批性能；alpha.2 引入 M4 上传／恢复及 LOGGER-001 修复。alpha.1 保持未变，仍为 M4 前版本。
 
-**所有者于 2026-10-18 验收 M4，MVP 已完成。** 所有者验证 Server 部署、HTTPS／登录及手动本地／远端备份，保留既有数据将 ARM64 Pi Logger 升级至 alpha.3，并确认真实积压清零。随后采集与上传并行运行：新 pending 记录被确认，上传器回到 idle，未再报告错误。详见 [M4 最终验收及证据限制](docs/milestone/m4_zh.md#所有者最终验收与-mvp-结项2026-10-18)和 [MVP 路线图](docs/mvp-roadmap_zh.md)。后续在新 session 开始 Server 数据展示及额外功能工作。
+**所有者于 2026-10-18 验收 M4，MVP 已完成。** 所有者验证 Server 部署、HTTPS／登录及手动本地／远端备份，保留既有数据将 ARM64 Pi Logger 升级至 alpha.3，并确认真实积压清零。随后采集与上传并行运行：新 pending 记录被确认，上传器回到 idle，未再报告错误。详见 [M4 最终验收及证据限制](docs/milestone/m4_zh.md#所有者最终验收与-mvp-结项2026-10-18)和 [MVP 路线图](docs/mvp-roadmap_zh.md)。[Post-MVP 路线图](docs/post-mvp-roadmap_zh.md)记录已确定的后续方向，实现尚未开始。
 
 ## 开发环境
 
