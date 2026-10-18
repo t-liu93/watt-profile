@@ -72,6 +72,41 @@
 
 官方参考：[registry item 格式](https://ui.shadcn.com/docs/registry/registry-item-json)、[依赖 ref](https://ui.shadcn.com/docs/registry/github#dependency-refs)、[上游 registry 结构](https://github.com/shadcn-ui/ui/blob/main/apps/v4/registry/README.md)和 [npm 锁文件](https://docs.npmjs.com/cli/v11/configuring-npm/package-lock-json/)。这些资料解释上游机制；项目组件锁文件为自行定义的格式。
 
+### 前端基础版本（M5-09）
+
+M5-09 候选使用 Radix base、`new-york` 样式、完整上游提交 `daaf156ee00ed91cc7e6bdd937c1b4973152d141`、锁格式 `1` 和转换版本 `radix-new-york-path-alias-v1`。不可变安装资源为 `apps/v4/public/r/styles/new-york/{button,dialog,utils}.json`，button／dialog 各自锁定隐式 utils 依赖。[package-lock.json](../../frontend/package-lock.json) 保留 npm 原生 integrity；[ui-components.lock.json](../../frontend/ui-components.lock.json) 记录 registry 输入、配置指纹和生成文件 hash。同一候选已通过两次干净 npm 安装／资源还原及组件键盘检查。最终所有者走查／组件冻结仍待确认。业务页面开发前选择的直接版本如下：
+
+| 工具／包 | 固定版本 |
+| --- | --- |
+| `Node.js` | `24.22.0` |
+| `npm` | `11.16.0` |
+| `@eslint/js` | `10.0.1` |
+| `@radix-ui/react-dialog` | `1.3.1` |
+| `@radix-ui/react-slot` | `1.5.0` |
+| `@tailwindcss/vite` | `4.3.3` |
+| `@types/node` | `24.19.2` |
+| `@types/react` | `19.3.0` |
+| `@types/react-dom` | `19.3.0` |
+| `@vitejs/plugin-react` | `6.1.2` |
+| `class-variance-authority` | `0.7.1` |
+| `clsx` | `2.1.1` |
+| `echarts` | `6.1.0` |
+| `eslint` | `10.13.0` |
+| `globals` | `17.13.0` |
+| `lucide-react` | `1.59.0` |
+| `react` | `19.3.1` |
+| `react-dom` | `19.3.1` |
+| `react-router-dom` | `7.18.4` |
+| `shadcn` | `4.22.1` |
+| `tailwind-merge` | `3.7.0` |
+| `tailwindcss` | `4.3.3` |
+| `tailwindcss-animate` | `1.0.7` |
+| `typescript` | `6.0.3` |
+| `typescript-eslint` | `8.71.2` |
+| `vite` | `8.3.4` |
+
+开发工具限制：npm audit 报告七项 high 结果，来自仅开发时使用的 shadcn glob 依赖链，根源为 [GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm)。M5-09 期间尚无兼容补丁；普通准备／构建不调用 shadcn CLI，应用源码不导入该开发依赖链。保留此项记录，不执行未固定版本的 audit fix。
+
 ### C4. 语言、认证状态与刷新
 
 - 导航、登录、表单、校验、错误、图表标签和空状态全部提供双语。首次按浏览器语言选择中文，否则英文；默认深色，保留现有 `watt-profile-theme` 偏好键。
@@ -356,6 +391,8 @@ Python 使用现有 Ruff／pytest 和隔离 PostgreSQL 设施。为 `scripts/ci.
 - **M5-06 — 一轮修复后自动实现通过：** 日期等权的电网功率平均日、逐指标门槛及 DST 时槽。首审发现组合 pytest fixture 暴露错误；修复两个受影响测试模块，计算未改动。普通组合 analysis 运行44项通过；全新复审34项相关测试及 Ruff lint／format、diff 通过，首审另完成1152项独立 DST 参考比对。
 
 - **M5-07 — 自动实现已通过：** 九条对齐分相包络、取电／馈电方向、共享 null／缺口规则，每条最多500桶。独立审查：40项 context／power／phases 测试及2项额外精度／缺失／单位／对齐／缩放检查通过，Ruff lint／format、diff通过。
+
+- **M5-08 — 自动实现已通过：** 工作台／分析／最新读数接口、概览共享快照、沿用认证与安全错误、外派前非等待双名额准入与取消安全的工作线程所有权。独立审查：102项 API／auth／ingest／query／CSV PostgreSQL 测试及 Ruff lint／format、diff通过；实现回归另覆盖全部分析服务（150项通过）。
 
 ### 验收记录
 

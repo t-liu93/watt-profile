@@ -1,0 +1,53 @@
+{
+  "formatVersion": 1,
+  "transformVersion": "radix-new-york-path-alias-v1",
+  "base": "radix",
+  "style": "new-york",
+  "upstreamCommit": "daaf156ee00ed91cc7e6bdd937c1b4973152d141",
+  "cliVersion": "4.22.1",
+  "selected": [
+    "button",
+    "dialog"
+  ],
+  "configurationSHA256": "8410988d1dc349afcea83b886bf310bf027ed755dfc8d48792d641fc21292cb5",
+  "resources": {
+    "button": {
+      "url": "https://raw.githubusercontent.com/shadcn-ui/ui/daaf156ee00ed91cc7e6bdd937c1b4973152d141/apps/v4/public/r/styles/new-york/button.json",
+      "sha256": "4d8f39c3bd25e630b5962667722e8707e7b18122ad6842a5c22acf8a3ff9f93a",
+      "dependencies": [
+        "utils"
+      ],
+      "npmDependencies": [
+        "@radix-ui/react-slot",
+        "class-variance-authority",
+        "react"
+      ]
+    },
+    "utils": {
+      "url": "https://raw.githubusercontent.com/shadcn-ui/ui/daaf156ee00ed91cc7e6bdd937c1b4973152d141/apps/v4/public/r/styles/new-york/utils.json",
+      "sha256": "5ee7ca619ff89f9229c0c756cfef2b6c78356d81ce72944cb122beb3816e51e5",
+      "dependencies": [],
+      "npmDependencies": [
+        "clsx",
+        "tailwind-merge"
+      ]
+    },
+    "dialog": {
+      "url": "https://raw.githubusercontent.com/shadcn-ui/ui/daaf156ee00ed91cc7e6bdd937c1b4973152d141/apps/v4/public/r/styles/new-york/dialog.json",
+      "sha256": "e240f8eaa9e9e626dffa1a340469c6bace9c631e78b7b10e7d0f178a32a1c71c",
+      "dependencies": [
+        "utils"
+      ],
+      "npmDependencies": [
+        "@radix-ui/react-dialog",
+        "lucide-react",
+        "react"
+      ]
+    }
+  },
+  "generated": {
+    "src/generated/ui/button.tsx": "5932f37940a135042225345468bba0dd684dfef02114f783589c4ba00f96263f",
+    "src/generated/lib/utils.ts": "7c8c3dfc0cdd370d44932828eb067ef771c8fe7996693221d5d4b90af6d54f2d",
+    "src/generated/ui/dialog.tsx": "13503b5739826cd4d4e83e2d51648a927be21572fbde11f2ce55e3363da62053"
+  }
+}
