@@ -6,14 +6,14 @@ import { analysisResources, metricLabel } from './analysis-i18n'
 import type { Language } from './i18n'
 import type { APIClient } from './lib/api'
 import { useAnalysisRead } from './lib/analysis'
-import type { AnalysisRange, DirectionEnergy, Latest, Overview, PowerResult, SessionContext, SessionPage } from './lib/analysis-models'
+import type { AnalysisRange, DirectionEnergy, Latest, MetricCurve, Overview, PhaseResult, PowerResult, SessionContext, SessionPage } from './lib/analysis-models'
 import { fromMicros, fullDays, localDate, micros, plotNumber, recentRange, zoomRange } from './lib/analysis-time'
 import { SiteUsage } from './Usage'
 import { powerOption } from './lib/analysis-charts'
 import type { EChartsCoreOption } from './lib/charts'
 import { Panel, ReadStatus, Unplottable, rawLink } from './components/AnalysisUI'
 /** Shared session/range controller and controls for historical analysis tabs. */
-export function SiteAnalysis({ client, language, id, tab }: { client: APIClient; language: Language; id: string; tab: 'overview' | 'usage' }) {
+export function SiteAnalysis({ client, language, id, tab }: { client: APIClient; language: Language; id: string; tab: 'overview' | 'usage' | 'phases' }) {
  const t = analysisResources[language], [params, setParams] = useSearchParams()
  const lifetime = useRef(''); lifetime.current = id + '?' + params.toString()
  useEffect(() => () => { lifetime.current = '' }, [])
@@ -23,13 +23,15 @@ export function SiteAnalysis({ client, language, id, tab }: { client: APIClient;
  const first = params.get('received_from'), before = params.get('received_before')
  const range = useMemo(() => first && before ? { received_from: first, received_before: before } : null, [first, before])
  const query = session && range ? new URLSearchParams({ session_id: session, ...range }).toString() : null
+ const direction = params.get('direction') === 'export' ? 'export' : 'import'
+ const phases = useAnalysisRead<PhaseResult>(client, tab === 'phases' && query ? base + 'phases?' + query + '&direction=' + direction : null)
  const overview = useAnalysisRead<Overview>(client, tab === 'overview' && query ? base + 'overview?' + query : null)
  const latest = useAnalysisRead<Latest>(client, tab === 'overview' && session ? base + 'latest?' + new URLSearchParams({ session_id: session }) : null, true)
  const [zoom, setZoom] = useState<{ query: string | null; bounds: AnalysisRange | null; percentages: [number, number] }>({ query, bounds: null, percentages: [0, 100] })
  const activeZoom = zoom.query === query ? zoom : { query, bounds: null, percentages: [0, 100] as [number, number] }
  const power = useAnalysisRead<PowerResult>(client, tab === 'overview' && query && activeZoom.bounds ? base + 'power?' + query + '&' + new URLSearchParams({ zoom_from: activeZoom.bounds.received_from, zoom_before: activeZoom.bounds.received_before }) : null)
  const usageRefresh = useRef<(() => void) | null>(null)
- function reloadHistory() { if (tab === 'usage') usageRefresh.current?.(); else { void overview.load(); if (activeZoom.bounds) void power.load() } }
+ function reloadHistory() { if (tab === 'usage') usageRefresh.current?.(); else if (tab === 'phases') void phases.load(); else { void overview.load(); if (activeZoom.bounds) void power.load() } }
  const [invalid, setInvalid] = useState(false)
  function selection(nextSession: string | null, nextRange: AnalysisRange | null, nextMode = mode, replace = false) {
   const next = new URLSearchParams(params)
@@ -74,6 +76,7 @@ export function SiteAnalysis({ client, language, id, tab }: { client: APIClient;
  {!session && sessions.result && <p>{t.empty}</p>}
  </Panel>
  {tab === 'usage' && <SiteUsage client={client} language={language} base={base} query={query} params={params} refreshRef={usageRefresh}/>}
+ {tab === 'phases' && <PhaseDiagnostics read={phases} direction={direction} setDirection={value => { const next = new URLSearchParams(params); next.set('direction', value); setParams(next) }} range={range} params={params} session={session} language={language} theme={theme}/>}
  {tab === 'overview' && <ReadStatus read={overview} language={language}/>}
  {tab === 'overview' && data && <>
  <Panel title={t.statistics}><p>{t.count}: {data.context.reading_count} · {t.calculated}: {data.context.calculated_at}</p><p>{t.actual}: {display(data.context.first_reading_received_at)} → {display(data.context.latest_reading_received_at)}</p>{!data.context.reading_count && <p>{t.empty}</p>}<div className="table-scroll"><table id="period-statistics"><thead><tr>{['kW', t.mean, t.minimum, t.maximum, t.valid].map(label => <th key={label}>{label}</th>)}</tr></thead><tbody>{data.statistics.map(row => <tr key={row.metric}><th>{row.metric === 'power_import_kw' ? t.import : t.export}</th><td>{display(row.mean)}</td><td>{display(row.minimum)}</td><td>{display(row.maximum)}</td><td>{row.valid_count}</td></tr>)}</tbody></table></div></Panel>
@@ -93,4 +96,24 @@ function DailyChart({ energy, language, theme }: { energy: [DirectionEnergy, Dir
  const t = analysisResources[language], [incoming, outgoing] = energy
  const option = useMemo<EChartsCoreOption>(() => { const dates = [...new Set([...incoming.daily, ...outgoing.daily].map(day => day.date))].sort(), color = theme === 'light' ? '#19263d' : '#e5edff'; return { animation: false, textStyle: { color }, tooltip: { trigger: 'axis' }, legend: { top: 8, textStyle: { color } }, grid: { left: 65, right: 20, bottom: 50 }, xAxis: { type: 'category', data: dates, axisLabel: { color } }, yAxis: { type: 'value', name: 'kWh', axisLabel: { color } }, series: [incoming, outgoing].map((direction, i) => ({ type: 'bar', name: i ? t.export : t.import, itemStyle: { color: i ? '#5bd5ee' : '#6695ff' }, data: dates.map(date => plotNumber(direction.daily.find(day => day.date === date)?.energy_kwh ?? null)) })) } }, [incoming, outgoing, theme, t])
  return <AnalysisChart option={option} label={t.daily}/>
+}
+
+function PhaseDiagnostics({ read, direction, setDirection, range, params, session, language, theme }: { read: ReturnType<typeof useAnalysisRead<PhaseResult>>; direction: 'import' | 'export'; setDirection: (value: 'import' | 'export') => void; range: AnalysisRange | null; params: URLSearchParams; session: string | null; language: Language; theme?: string }) {
+ const t = analysisResources[language], result = read.result, [visible, setVisible] = useState([true, true, true])
+ const phases = [t.phase1, t.phase2, t.phase3] as [string, string, string]
+ const foreground = theme === 'light' ? '#19263d' : '#e5edff'
+ const colors = ['#6695ff', '#5bd5ee', '#a88aff']
+ const metrics = result ? [['voltage', result.voltage, t.voltage, 'V'], ['current', result.current, t.current, 'A'], ['power', result.power, direction === 'import' ? t.import : t.export, 'kW']] as const : []
+ function option(curves: MetricCurve[], unit: string) {
+  return { animation: false, textStyle: { color: foreground }, tooltip: { trigger: 'axis' }, grid: { left: 65, right: 20, top: 20, bottom: 55 }, xAxis: { type: 'time', min: range ? Date.parse(range.received_from) : undefined, max: range ? Date.parse(range.received_before) : undefined, axisLabel: { color: foreground, formatter: (value: number) => new Intl.DateTimeFormat(language === 'zh' ? 'zh-CN' : 'en-GB', { timeZone: 'Europe/Amsterdam', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).format(value) } }, yAxis: { type: 'value', name: unit, axisLabel: { color: foreground } }, series: curves.flatMap((curve, index) => visible[index] ? (['minimum', 'maximum', 'mean'] as const).map(kind => ({ type: 'line', name: phases[index] + ' ' + t[kind], showSymbol: kind === 'mean', symbolSize: 4, connectNulls: false, lineStyle: { width: kind === 'mean' ? 2 : 1, type: kind === 'mean' ? (index === 1 ? 'dashed' : index === 2 ? 'dotted' : 'solid') : 'dashed', opacity: kind === 'mean' ? 1 : 0.45 }, itemStyle: { color: colors[index] }, data: curve.buckets.flatMap(bucket => { const value = plotNumber(bucket[kind]), point = { value: [Date.parse(bucket.received_from), value], symbol: bucket.has_gap ? 'diamond' : kind === 'mean' && value !== null ? 'circle' : 'none' }; return bucket.break_before ? [[Date.parse(bucket.received_from) - 0.001, null], point] : [point] }) })) : []) }
+ }
+ return <Panel title={t.phaseTitle}>
+  <p>{t.phaseHelp}</p><p>{t.phaseMissing}</p><label>{t.direction}<select aria-label={t.direction} value={direction} onChange={event => setDirection(event.target.value as 'import' | 'export')}><option value="import">{t.import}</option><option value="export">{t.export}</option></select></label>
+  <ReadStatus read={read} language={language}/>
+  {result && <><p>{t.resolution}: {result.resolution_seconds} · {t.range}: {result.curve_range.received_from} → {result.curve_range.received_before}</p><fieldset><legend>{t.phaseLegend}</legend>{phases.map((phase, index) => <label key={phase}><input type="checkbox" checked={visible[index]} onChange={event => setVisible(old => old.map((item, i) => i === index ? event.target.checked : item))}/><span style={{ color: colors[index] }}>{phase}</span> · {t.phaseLine[index]}</label>)}</fieldset><p>{t.phaseLineHelp}</p>
+   {metrics.map(([key, curves, title, unit]) => <section key={key}><h4>{title} ({unit})</h4><AnalysisChart option={option(curves, unit)} label={title}/></section>)}
+   <Unplottable values={metrics.flatMap(([, curves]) => curves.flatMap(curve => curve.buckets.flatMap(bucket => [bucket.mean, bucket.minimum, bucket.maximum])))} language={language}/>
+   <details><summary>{t.phaseNumeric}</summary>{metrics.map(([key, curves, title, unit]) => <section key={key}><h4>{title} ({unit})</h4><div className="table-scroll"><table><thead><tr><th>{t.range}</th><th>{t.phase}</th><th>{t.mean} ({unit})</th><th>{t.minimum} ({unit})</th><th>{t.maximum} ({unit})</th><th>{t.valid}</th><th>{t.flags}</th><th>{t.raw}</th></tr></thead><tbody>{curves.flatMap((curve, index) => curve.buckets.map(bucket => <tr key={key + index + bucket.received_from}><td><code>{bucket.received_from} → {bucket.received_before}</code></td><th>{phases[index]}</th><td><code>{bucket.mean ?? t.notProvided}</code></td><td><code>{bucket.minimum ?? t.notProvided}</code></td><td><code>{bucket.maximum ?? t.notProvided}</code></td><td><code>{bucket.valid_count}</code></td><td>{bucket.has_gap ? t.yes : t.no} / {bucket.break_before ? t.yes : t.no}</td><td>{session ? <Link to={rawLink(params, null, null, session, bucket)}>{t.rawRange}</Link> : t.unavailable}</td></tr>))}</tbody></table></div></section>)}</details>
+  </>}{!result && !read.loading && !read.error && <p role="status">{t.phaseEmpty}</p>}
+ </Panel>
 }

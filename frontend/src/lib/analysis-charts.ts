@@ -3,7 +3,7 @@ import type { MetricCurve, PowerResult } from './analysis-models'
 import { plotNumber } from './analysis-time'
 export function curveSeries(curve: MetricCurve, label: string, sign: number, color: string, extrema: [string, string, string]) {
  return (['minimum', 'maximum', 'mean'] as const).map(kind => ({ type: 'line', name: label + ' ' + extrema[['minimum', 'maximum', 'mean'].indexOf(kind)], showSymbol: true, symbolSize: 5, connectNulls: false, lineStyle: { width: kind === 'mean' ? 2 : 1, type: kind === 'mean' ? 'solid' : 'dashed' }, itemStyle: { color }, data: curve.buckets.flatMap(bucket => {
-  const value = plotNumber(bucket[kind]), point = { value: [Date.parse(bucket.received_from), value === null ? null : sign * value], symbol: bucket.has_gap ? 'diamond' : 'none' }
+  const value = plotNumber(bucket[kind]), point = { value: [Date.parse(bucket.received_from), value === null ? null : sign * value], symbol: bucket.has_gap ? 'diamond' : kind === 'mean' && value !== null ? 'circle' : 'none' }
   return bucket.break_before ? [[Date.parse(bucket.received_from) - 0.001, null], point] : [point]
  }) }))
 }
