@@ -33,6 +33,7 @@ MICROSECOND = timedelta(microseconds=1)
 if TYPE_CHECKING:
     from watt_profile.server.analysis_power import PowerResult
     from watt_profile.server.analysis_quality import QualityResult
+    from watt_profile.server.analysis_typical_day import TypicalDayResult
 
 
 class InvalidAnalysis(ValueError):
@@ -148,6 +149,11 @@ class AnalysisRead:
         from watt_profile.server.analysis_quality import calculate_quality
 
         return calculate_quality(self, gaps=gaps, problems=problems)
+
+    def typical_day(self) -> "TypicalDayResult":
+        from watt_profile.server.analysis_typical_day import calculate_typical_day
+
+        return calculate_typical_day(self)
 
 
 def session_statement(site_id):

@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
+import test_server_analysis
 from sqlalchemy import update
 
 from watt_profile.contracts.domain import FieldIssue, Quality, SanitizedField
@@ -12,7 +13,7 @@ from watt_profile.server.registration import PageOptions
 from watt_profile.server.storage import schema as db
 from watt_profile.server.storage.repository import snapshot_values
 
-pytest_plugins = ("test_server_analysis",)
+analysis_data = test_server_analysis.analysis_data
 
 
 def _range(start, seconds):
