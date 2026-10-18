@@ -25,6 +25,8 @@ from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
 
 from watt_profile.contracts.upload import MAX_BODY_BYTES, UploadValidationError
+from watt_profile.server.analysis import InvalidAnalysis, parse_range
+from watt_profile.server.analysis_api import AnalysisAPI
 from watt_profile.server.auth import COOKIE, LOGIN_COOKIE, MAX_AGE, AdministratorAuth
 from watt_profile.server.bootstrap import initialize_storage
 from watt_profile.server.export import ExportManager
@@ -240,6 +242,7 @@ def create_app(settings: ServerSettings | None = None):
         app.state.queries = QueryService(engine)
         app.state.ingest = IngestService(IngestRepository(engine))
         app.state.exports = ExportManager(engine)
+        app.state.analysis = AnalysisAPI(engine)
         app.state.ready = True
         try:
             yield
@@ -265,7 +268,14 @@ def create_app(settings: ServerSettings | None = None):
         if isinstance(exc, ManagementError):
             code = exc.code
         elif isinstance(
-            exc, (ValidationError, RequestValidationError, InvalidQuery, InvalidRegistration)
+            exc,
+            (
+                ValidationError,
+                RequestValidationError,
+                InvalidQuery,
+                InvalidRegistration,
+                InvalidAnalysis,
+            ),
         ):
             code = "invalid_input"
         elif isinstance(exc, ObjectNotFound):
@@ -287,6 +297,7 @@ def create_app(settings: ServerSettings | None = None):
         ValidationError,
         RequestValidationError,
         InvalidQuery,
+        InvalidAnalysis,
         InvalidRegistration,
         ObjectNotFound,
         RegistrationConflict,
@@ -526,6 +537,107 @@ def create_app(settings: ServerSettings | None = None):
         return JSONResponse(
             {"data": result.model_dump(mode="json") if hasattr(result, "model_dump") else result}
         )
+
+    async def analysis_management(request: Request):
+        session(request)
+        api = app.state.analysis
+        job = None
+        route = request.scope["route"].path
+        site_id = request.path_params.get("site_id")
+        if site_id is not None:
+            site_id = query_id(site_id)
+        operation = route.rsplit("/", 1)[-1]
+        if route == PREFIX + "/workspace/sites":
+            search = SiteSearch.model_validate(
+                query_values(request, {"site_id", "q", "offset", "limit"})
+            )
+            call = partial(api.workspace, search)
+        elif operation == "sessions":
+            options = PageOptions.model_validate(query_values(request, {"offset", "limit"}))
+            call = partial(api.service.session_page, site_id, options)
+        elif operation == "latest":
+            values = query_values(request, {"session_id"})
+            if "session_id" not in values:
+                raise ManagementError("invalid_input")
+            call = partial(api.latest, site_id, query_id(values["session_id"]))
+        else:
+            allowed = {"session_id", "received_from", "received_before"}
+            if operation in {"power", "phases"}:
+                allowed |= {"zoom_from", "zoom_before"}
+            if operation == "phases":
+                allowed.add("direction")
+            if operation == "quality":
+                allowed |= {"gap_offset", "gap_limit", "problem_offset", "problem_limit"}
+            if operation == "typical-day":
+                allowed.add("group")
+            values = query_values(request, allowed)
+            if not {"session_id", "received_from", "received_before"} <= values.keys():
+                raise ManagementError("invalid_input")
+            session_id = query_id(values.pop("session_id"))
+            analysis_range = parse_range(
+                {name: values.pop(name) for name in ("received_from", "received_before")}
+            )
+            options = {}
+            if "zoom_from" in values or "zoom_before" in values:
+                if not {"zoom_from", "zoom_before"} <= values.keys():
+                    raise ManagementError("invalid_input")
+                options["zoom"] = parse_range(
+                    {
+                        "received_from": values.pop("zoom_from"),
+                        "received_before": values.pop("zoom_before"),
+                    }
+                )
+            if operation == "phases":
+                options["direction"] = values.get("direction", "import")
+            if operation == "quality":
+                for singular, plural in (("gap", "gaps"), ("problem", "problems")):
+                    page = {}
+                    for name in ("offset", "limit"):
+                        key = singular + "_" + name
+                        if key in values:
+                            try:
+                                page[name] = int(values[key])
+                            except ValueError:
+                                raise ManagementError("invalid_input") from None
+                    options[plural] = PageOptions.model_validate(page)
+            group = values.get("group")
+            if group is not None and group not in {"all", "weekday", "weekend"}:
+                raise ManagementError("invalid_input")
+            job = api.admit(
+                site_id,
+                session_id,
+                analysis_range,
+                operation.replace("-", "_"),
+                **options,
+            )
+            call = job
+        try:
+            result = await run_in_threadpool(call)
+        finally:
+            if job is not None:
+                job.cancel_pending()
+        if operation == "typical-day" and group is not None:
+            result = result.model_copy(
+                update={"groups": tuple(g for g in result.groups if g.group == group)}
+            )
+        return JSONResponse({"data": result.model_dump(mode="json")})
+
+    for path in (
+        "/workspace/sites",
+        *(
+            f"/sites/{{site_id}}/analysis/{name}"
+            for name in (
+                "sessions",
+                "overview",
+                "power",
+                "typical-day",
+                "phases",
+                "quality",
+                "latest",
+            )
+        ),
+    ):
+        app.add_api_route(PREFIX + path, analysis_management, methods=["GET"])
 
     routes = {
         "/registrations/preview": ["POST"],

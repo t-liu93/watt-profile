@@ -156,6 +156,8 @@
 - 分析名额与原有两个 CSV 名额独立；异常、取消和完成都释放资源，保留现有有限连接池。
 - 现有 ingest、原始查询和 CSV 的认证、筛选、排序、十进制表示和完整流式契约不变。
 
+已实现查询参数名（M5-08）：`/workspace/sites` 接受互斥的 `q` 或 `site_id`，以及 `offset`／`limit`。功率／分相曲线接受成对的 `zoom_from`／`zoom_before`，边界必须位于必传全局范围内。分相使用 `direction=import|export`，默认 import。质量页分别使用 `gap_offset`／`gap_limit` 与 `problem_offset`／`problem_limit`。平均日可选 `group=all|weekday|weekend`，省略时返回三组。最新读数只需 `session_id`，不传历史范围；响应分别保留 `snapshot`、`ingested_at`、`device_last_authenticated_contact_at` 与 `site_latest_reading_received_at`。
+
 ### C10. 构建与容器交付
 
 CI 安装锁定依赖、准备／校验组件、检查前端，并且**每条流水线只生成一份前端构建产物**。浏览器检查、Python 打包、Server Compose 构建和发布镜像任务消费同一产物。发布架构矩阵复用完整检查工作流产物，不分别重新获取／生成组件。
@@ -352,6 +354,8 @@ Python 使用现有 Ruff／pytest 和隔离 PostgreSQL 设施。为 `scripts/ci.
 - **M5-05 — 自动实现已通过：** 名义采样比例／超额数、指标／累计端点有效性、缺口与独立问题分页、有界问题摘要及单列隐私脱敏。独立审查：29 项 quality／context 测试及 6 项额外阈值／微秒／103 项分页／有效性／结束边界测试通过，Ruff 与 diff 检查通过。
 
 - **M5-06 — 一轮修复后自动实现通过：** 日期等权的电网功率平均日、逐指标门槛及 DST 时槽。首审发现组合 pytest fixture 暴露错误；修复两个受影响测试模块，计算未改动。普通组合 analysis 运行44项通过；全新复审34项相关测试及 Ruff lint／format、diff 通过，首审另完成1152项独立 DST 参考比对。
+
+- **M5-07 — 自动实现已通过：** 九条对齐分相包络、取电／馈电方向、共享 null／缺口规则，每条最多500桶。独立审查：40项 context／power／phases 测试及2项额外精度／缺失／单位／对齐／缩放检查通过，Ruff lint／format、diff通过。
 
 ### 验收记录
 
