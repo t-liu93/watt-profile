@@ -541,33 +541,35 @@ class LoggerRepository:
                 .limit(limit)
             ).mappings()
             local, source = self._descriptors(session, first["session_id"])
+            values = {
+                "schema_version": 1,
+                "device_id": str(local.descriptor.device_id),
+                "site_id": str(local.descriptor.site_id),
+                "measurement_point_id": str(source.descriptor.measurement_point_id),
+                "session": local.descriptor.model_dump(mode="json"),
+                "source": source.descriptor.model_dump(mode="json"),
+            }
+            prefix = _json(values)[:-1].encode("utf-8") + b',"records":['
+            body_size = len(prefix) + len(b"]}")
             records, canonical = [], []
-            chosen = None
             for row in rows:
                 record = self._load_snapshot(session, row)
-                batch = UploadBatch(
-                    schema_version=1,
-                    device_id=record.device_id,
-                    site_id=record.site_id,
-                    measurement_point_id=record.measurement_point_id,
-                    session=local.descriptor,
-                    source=source.descriptor,
-                    records=(*records, record),
-                )
-                values = batch.model_dump(mode="json")
-                # Inject the stored canonical texts directly into the bounded request body.
-                texts = [*canonical, row["canonical_snapshot"].encode("utf-8")]
-                values.pop("records")
-                prefix = _json(values)[:-1].encode("utf-8")
-                body = prefix + b',"records":[' + b",".join(texts) + b"]}"
-                if len(body) > byte_limit:
-                    if chosen is None:
+                encoded = row["canonical_snapshot"].encode("utf-8")
+                next_size = body_size + len(encoded) + (1 if records else 0)
+                if next_size > byte_limit:
+                    if not records:
                         raise ValueError("batch_too_large")
                     break
                 records.append(record)
-                canonical = texts
-                chosen = PendingGroup(batch=batch, canonical_records=tuple(texts), body=body)
-            return chosen
+                canonical.append(encoded)
+                body_size = next_size
+            if not records:
+                return None
+            # Build the complete batch after selection rather than rebuilding every prefix.
+            # Preserve stored canonical texts verbatim in the bounded request body.
+            batch = UploadBatch(**values, records=tuple(records))
+            body = prefix + b",".join(canonical) + b"]}"
+            return PendingGroup(batch=batch, canonical_records=tuple(canonical), body=body)
 
     def apply_confirmation(
         self, batch: UploadBatch, confirmation: UploadConfirmation | bytes, now: datetime

@@ -19,6 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from watt_profile.contracts.domain import Snapshot, canonical_snapshot_bytes
 from watt_profile.contracts.lifecycle import complete_session, new_deployment, switch_site
 from watt_profile.contracts.upload import (
+    MAX_BATCH_RECORDS,
     InvalidConfirmation,
     UploadConfirmation,
     validate_upload_body,
@@ -171,6 +172,61 @@ def test_pending_group_same_reception_tie_and_single_record_byte_bound(repositor
     assert selected.batch.records == (first,)
     with pytest.raises(ValueError, match="^batch_too_large$"):
         repo.select_pending_group(limit=1, byte_limit=len(selected.body) - 1)
+
+
+@pytest.mark.parametrize("size", [25, MAX_BATCH_RECORDS])
+def test_pending_batch_validation_work_is_linear(repository, monkeypatch, size):
+    # Count actual canonical record validations, avoiding machine-dependent timing assertions.
+    from watt_profile.contracts import upload
+
+    for _ in range(size + 1):
+        repository.insert_snapshot(record(repository))
+    validations = 0
+    original = upload.canonical_snapshot_bytes
+
+    def counted(snapshot):
+        nonlocal validations
+        validations += 1
+        return original(snapshot)
+
+    monkeypatch.setattr(upload, "canonical_snapshot_bytes", counted)
+    group = repository.select_pending_group(limit=size)
+    assert len(group.batch.records) == size
+    assert size <= validations <= 4 * size
+    assert repository.get_status().pending_count == size + 1
+
+
+def test_pending_batch_exact_wire_bytes_and_inclusive_byte_limits(repository):
+    snapshots = []
+    for index in range(3):
+        snapshot = record(
+            repository,
+            received_at=NOW + timedelta(seconds=index),
+            sampled_at=NOW + timedelta(seconds=index),
+            meter_time_raw=None if index == 0 else "260101000000W",
+        )
+        repository.insert_snapshot(snapshot)
+        snapshots.append(snapshot)
+    group = repository.select_pending_group()
+    header = group.batch.model_dump(mode="json", exclude={"records"})
+    prefix = json.dumps(header, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    canonical = tuple(canonical_snapshot_bytes(snapshot) for snapshot in snapshots)
+    expected = prefix[:-1].encode("utf-8") + b',"records":[' + b",".join(canonical) + b"]}"
+    assert group.canonical_records == canonical
+    assert group.body == expected
+    assert validate_upload_body(group.body) == group.batch
+
+    for count in range(1, 4):
+        exact = repository.select_pending_group(limit=count)
+        assert repository.select_pending_group(byte_limit=len(exact.body)) == exact
+        assert repository.select_pending_group(byte_limit=len(exact.body) + 1) == exact
+        if count == 1:
+            with pytest.raises(ValueError, match="^batch_too_large$"):
+                repository.select_pending_group(byte_limit=len(exact.body) - 1)
+        else:
+            shorter = repository.select_pending_group(byte_limit=len(exact.body) - 1)
+            assert shorter == repository.select_pending_group(limit=count - 1)
+    assert repository.get_status().pending_count == 3
 
 
 def test_origin_change_gate_is_atomic_and_uses_effective_origin(repository):
