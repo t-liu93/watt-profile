@@ -238,7 +238,9 @@ def test_readings_filters_detail_complete_csv_and_polling(server_browser, tmp_pa
     )
     assert response.ok
     page.get_by_role("link", name="Open registered site").click()
+    page.get_by_role("link", name="Settings", exact=True).click()
     expect(page.locator("#status")).to_contain_text("3")
+    page.get_by_role("link", name="Raw readings", exact=True).click()
     page.get_by_label("Rows per page").fill("1")
     page.get_by_label("Device UUID", exact=True).fill(summary["device_id"])
     page.get_by_label("Session UUID", exact=True).fill(str(payload.session.session_id))
@@ -276,10 +278,11 @@ def test_readings_filters_detail_complete_csv_and_polling(server_browser, tmp_pa
     page.context.unroute("**/readings.csv*")
     page.get_by_role("button", name="Next readings").click()
     expect(page.locator("#reading-count")).to_contain_text("offset 1")
-    # Operator's metadata draft and table DOM survive status polling.
+    # Operator metadata draft survives independent status polling in Settings.
+    page.get_by_role("link", name="Settings", exact=True).click()
     page.get_by_label("Address", exact=True).fill("Unsaved draft")
     page.evaluate(r"""() => {
-      window.savedRow = document.querySelector('#readings tr');
+      window.savedRow = document.querySelector('#edit-site');
       const original = fetch; window.stats={active:0,max:0,status:0};
       window.fetch=async (...args)=> {
         if(!String(args[0]).match(/\/sites\/[0-9a-f-]+$/)) return original(...args);
@@ -292,15 +295,16 @@ def test_readings_filters_detail_complete_csv_and_polling(server_browser, tmp_pa
     page.wait_for_timeout(10500)
     assert page.evaluate("window.stats.status") >= 1
     assert page.evaluate("window.stats.max") == 1
-    assert page.evaluate("window.savedRow === document.querySelector('#readings tr')")
+    assert page.evaluate("window.savedRow === document.querySelector('#edit-site')")
     assert page.get_by_label("Address", exact=True).input_value() == "Unsaved draft"
+    page.get_by_role("link", name="Raw readings", exact=True).click()
     page.get_by_label("Received from (UTC, inclusive)").fill("2026-01-01T00:00:00")
     page.get_by_role("button", name="Apply filters").click()
-    expect(page.locator("#error")).to_contain_text("invalid_input")
+    expect(page.locator("#raw-error")).to_contain_text("aware UTC")
     page.get_by_label("Received from (UTC, inclusive)").fill("")
     page.get_by_label("Device UUID", exact=True).fill(str(uuid4()))
     page.get_by_role("button", name="Apply filters").click()
-    expect(page.locator("#readings")).to_contain_text("No accepted readings")
+    expect(page.get_by_text("No accepted readings", exact=True)).to_be_visible()
 
 
 def test_device_creation_grants_confirmations_errors_and_expiry(server_browser):

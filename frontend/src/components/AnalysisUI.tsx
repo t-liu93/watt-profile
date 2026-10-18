@@ -10,7 +10,7 @@ export function ReadStatus({ read, language }: { read: { loading: boolean; error
 }
 export function rawLink(params: URLSearchParams, device: string | null, record: string | null, session: string, bounds?: { received_from: string; received_before: string }) {
  const next = new URLSearchParams(params)
- next.set('tab', 'raw'); next.set('raw_session_id', session); next.delete('raw_offset')
+ next.set('tab', 'raw'); next.set('raw_session_id', session); next.delete('raw_offset'); next.delete('raw_session_offset')
  for (const key of ['received_from', 'received_before'] as const) { const bound = bounds?.[key] ?? params.get(key); if (bound) next.set('raw_' + key, bound); else next.delete('raw_' + key) }
  if (device) next.set('raw_device_id', device); else next.delete('raw_device_id')
  if (record) next.set('raw_record_id', record); else next.delete('raw_record_id')

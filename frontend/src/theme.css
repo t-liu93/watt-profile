@@ -101,3 +101,6 @@ td { min-width: 100px; max-width: 400px; overflow-wrap: anywhere; white-space: p
 @media (max-width: 760px) { .analysis-grid { grid-template-columns: minmax(0, 1fr); } .analysis-chart { height: 330px; } }
 .content p { overflow-wrap: anywhere; }
 .analysis-panel td, .analysis-panel dd, .content time { font-family: ui-monospace, monospace; }
+.reading-dialog { width: min(900px, calc(100vw - 24px)); max-height: 90dvh; overflow: auto; background: var(--panel, #111827); }
+.reading-dialog pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.reading-dialog dl > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }

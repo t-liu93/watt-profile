@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import insert, text, update
+from test_server_analysis import analysis_data  # noqa: F401
 from test_server_queries import dataset as query_dataset  # noqa: F401
 
 from watt_profile.server.export import CSV_COLUMNS, CSV_FILENAME, ExportManager, snapshot_csv
@@ -210,3 +211,37 @@ def test_manager_shutdown_continues_after_one_close_error(dataset, monkeypatch):
     with replacement.open(summary.site_id) as stream:
         assert next(stream)
     replacement.close()
+
+
+def test_raw_query_and_csv_cross_sessions_beyond_31_dates(analysis_data):  # noqa: F811
+    from datetime import timedelta
+    from decimal import Decimal
+
+    service, summary, _, add = analysis_data
+    start = datetime(2026, 3, 1, tzinfo=UTC)
+    exact = Decimal("0.123456789012345678901234567890")
+    _, first = add(times=[start], metrics=[{"power_import_kw": exact}])
+    _, last = add(
+        started_at=start + timedelta(days=40),
+        times=[start + timedelta(days=40, microseconds=123456)],
+        metrics=[{"power_import_kw": exact}],
+    )
+    filters = {
+        "received_from": "2026-03-01T00:00:00.000000Z",
+        "received_before": "2026-04-10T00:00:00.123457Z",
+    }
+    from watt_profile.server.queries import ReadingPageOptions
+
+    query = QueryService(service.engine)
+    page = query.reading_page(summary.site_id, filters, ReadingPageOptions(limit=1))
+    assert page.total == 2 and len(page.items) == 1
+    manager = ExportManager(service.engine)
+    try:
+        rows = list(
+            csv.DictReader(io.StringIO(b"".join(manager.open(summary.site_id, filters)).decode()))
+        )
+        assert {r["record_id"] for r in rows} == {str(first[0].record_id), str(last[0].record_id)}
+        assert all(r["power_import_kw"] == str(exact) for r in rows)
+        assert rows[-1]["received_at"] == "2026-04-10T00:00:00.123456Z"
+    finally:
+        manager.close()
