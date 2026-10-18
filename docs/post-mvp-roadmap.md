@@ -2,7 +2,7 @@
 
 > **English — source of truth** · [中文](post-mvp-roadmap_zh.md)
 
-Status, 2026-10-18: **The MVP is accepted and complete; Post-MVP implementation has not started.** This high-level direction is agreed. The [M5 design and atomic task cards](milestone/m5.md) are agreed and recorded; implementation and acceptance remain pending.
+Status, 2026-10-18: **The MVP is accepted and complete; M5 implementation is in progress.** This high-level direction and the [M5 design and atomic task cards](milestone/m5.md) are agreed. Verified task results are maintained in M5; owner walkthrough and milestone acceptance remain pending.
 
 This is the ongoing roadmap for development after the MVP. It records product direction, stage goals, priorities, dependencies, and changes to scope. Detailed designs, interface contracts, atomic tasks, and acceptance records remain in each milestone's English document and Chinese mirror under `docs/milestone/`.
 

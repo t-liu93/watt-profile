@@ -40,6 +40,7 @@ from watt_profile.server.queries import (
 from watt_profile.server.registration import (
     CredentialInput,
     DeviceInput,
+    DevicePatch,
     InvalidRegistration,
     ObjectNotFound,
     PageOptions,
@@ -479,7 +480,11 @@ def create_app(settings: ServerSettings | None = None):
                     **repo.get_device(ids["device_id"]).model_dump(mode="json"),
                 }
 
-            call = detail
+            call = (
+                partial(repo.edit_device, ids["device_id"], await json_input(request, DevicePatch))
+                if mutation
+                else detail
+            )
         elif route.endswith("/credentials"):
             value = await json_input(request, CredentialInput)
             call = partial(repo.register_credential, ids["device_id"], value.token)
@@ -528,7 +533,7 @@ def create_app(settings: ServerSettings | None = None):
         "/sites": ["GET", "POST"],
         "/sites/{site_id}": ["GET", "PATCH"],
         "/devices": ["GET", "POST"],
-        "/devices/{device_id}": ["GET"],
+        "/devices/{device_id}": ["GET", "PATCH"],
         "/devices/{device_id}/credentials": ["POST"],
         "/devices/{device_id}/credentials/{credential_id}/disable": ["POST"],
         "/devices/{device_id}/sites/{site_id}": ["PUT", "DELETE"],

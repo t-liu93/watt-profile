@@ -568,3 +568,28 @@ def test_real_lock_timeout_is_safe_retryable_and_rolls_back(repo):
             finally:
                 event.remove(repo.engine, "before_cursor_execute", shorten)
     assert counts(repo) == (0, 0, 0, 0)
+
+
+def test_display_name_fallbacks_and_clear(repo):
+    from watt_profile.server.registration import DevicePatch
+
+    site = repo.create_site(
+        SiteInput(site_id=uuid4(), address="Synthetic address", display_name="Home")
+    )
+    assert site.display_label == "Home"
+    site = repo.edit_site(site.site_id, SitePatch(display_name=""))
+    assert site.display_label == "Synthetic address"
+    site = repo.edit_site(site.site_id, SitePatch(address=""))
+    assert site.display_label == str(site.site_id)[:8]
+    device = repo.create_device(DeviceInput(device_id=uuid4()))
+    assert device.display_label == str(device.device_id)[:8]
+    assert (
+        repo.edit_device(device.device_id, DevicePatch(display_name="Logger")).display_label
+        == "Logger"
+    )
+    assert (
+        repo.edit_device(device.device_id, DevicePatch(display_name="")).display_label
+        == str(device.device_id)[:8]
+    )
+    with pytest.raises(InvalidRegistration):
+        repo.edit_site(site.site_id, SitePatch(display_name=None))

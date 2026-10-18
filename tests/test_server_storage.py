@@ -118,7 +118,8 @@ def test_migration_fresh_noop_independent_chain(server_engine):
     configuration.set_main_option("script_location", str(Path(db.__file__).parent / "migrations"))
     script = ScriptDirectory.from_config(configuration)
     assert script.get_current_head() == HEAD
-    assert script.get_revision(HEAD).down_revision is None
+    assert script.get_revision(HEAD).down_revision == "server_0001"
+    assert script.get_revision("server_0001").down_revision is None
 
 
 def test_unknown_revision_refused_without_reset(server_engine):
@@ -448,3 +449,108 @@ def test_migration_failure_rolls_back_without_reset(server_engine, monkeypatch):
     with server_engine.connect() as connection:
         assert "synthetic_partial" not in inspect(connection).get_table_names()
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == HEAD
+
+
+def test_original_revision_upgrade_equivalence_and_record_preservation(server_engine):
+    from alembic import command
+
+    def structure(connection):
+        inspector = inspect(connection)
+        return {
+            name: {
+                "columns": sorted(
+                    (column["name"], str(column["type"]), column["nullable"], column["default"])
+                    for column in inspector.get_columns(name)
+                ),
+                "indices": sorted(
+                    (index["name"], tuple(index["column_names"]), index["unique"])
+                    for index in inspector.get_indexes(name)
+                ),
+                "checks": sorted(
+                    (item["name"], item["sqltext"])
+                    for item in inspector.get_check_constraints(name)
+                ),
+                "foreign_keys": sorted(
+                    (
+                        item["name"],
+                        tuple(item["constrained_columns"]),
+                        item["referred_table"],
+                        tuple(item["referred_columns"]),
+                    )
+                    for item in inspector.get_foreign_keys(name)
+                ),
+            }
+            for name in db.metadata.tables
+        }
+
+    with server_engine.begin() as connection:
+        fresh = structure(connection)
+        db.metadata.drop_all(connection)
+        connection.execute(text("DROP TABLE alembic_version"))
+        configuration = Config()
+        configuration.set_main_option(
+            "script_location", str(Path(db.__file__).parent / "migrations")
+        )
+        configuration.attributes["connection"] = connection
+        command.upgrade(configuration, "server_0001")
+        for table in ("sites", "devices"):
+            assert "display_name" not in {
+                item["name"] for item in inspect(connection).get_columns(table)
+            }
+
+    descriptor = SessionDescriptor(
+        session_id=uuid4(), device_id=uuid4(), site_id=uuid4(), started_at=NOW
+    )
+    source = SourceDescriptor(
+        source_id=uuid4(),
+        session_id=descriptor.session_id,
+        measurement_point_id=measurement_point_id(descriptor.site_id),
+    )
+    snapshot = Snapshot(
+        device_id=descriptor.device_id,
+        record_id=uuid4(),
+        site_id=descriptor.site_id,
+        session_id=descriptor.session_id,
+        source_id=source.source_id,
+        measurement_point_id=source.measurement_point_id,
+        received_at=NOW,
+        sampled_at=NOW,
+        meter_time_raw=None,
+        meter_time_utc=None,
+        metrics=Metrics(**{name: None for name in Metrics.model_fields}),
+        fields=[],
+        quality={"frame_length": 1, "issues": []},
+    )
+    repo = ServerRepository(server_engine)
+    credential_id = uuid4()
+    with repo.transaction() as session:
+        session.execute(insert(db.devices).values(device_id=descriptor.device_id, created_at=NOW))
+        session.execute(
+            insert(db.sites).values(site_id=descriptor.site_id, address="Original address")
+        )
+        repo.insert_descriptors(session, descriptor, source)
+        repo.insert_snapshot(session, snapshot, NOW)
+        session.execute(
+            insert(db.credentials).values(
+                credential_id=credential_id,
+                device_id=descriptor.device_id,
+                token_sha256="a" * 64,
+                created_at=NOW,
+            )
+        )
+        before = dict(session.execute(select(db.snapshots)).mappings().one())
+        credential_before = dict(session.execute(select(db.credentials)).mappings().one())
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        list(executor.map(lambda _: migrate(server_engine), range(3)))
+    migrate(server_engine)
+    with server_engine.connect() as connection:
+        assert structure(connection) == fresh
+        assert dict(connection.execute(select(db.snapshots)).mappings().one()) == before
+        assert (
+            dict(connection.execute(select(db.credentials)).mappings().one()) == credential_before
+        )
+        assert connection.scalar(select(db.sites.c.display_name)) == ""
+        assert connection.scalar(select(db.devices.c.display_name)) == ""
+    assert repo.get_snapshot(
+        snapshot.device_id, snapshot.record_id
+    ).canonical == canonical_snapshot_bytes(snapshot)

@@ -18,6 +18,7 @@ from watt_profile.server.registration import (
     Device,
     DeviceDetail,
     DeviceInput,
+    DevicePatch,
     Grant,
     InvalidRegistration,
     ObjectNotFound,
@@ -225,6 +226,20 @@ class RegistrationRepository(ServerRepository):
                 insert(db.devices).values(device_id=device.device_id, created_at=datetime.now(UTC))
             )
             return self._device(session, device.device_id)
+
+    def edit_device(self, device_id: UUID, patch: DevicePatch) -> Device:
+        device_id = _id(device_id)
+        patch = DevicePatch.model_validate(patch.model_dump())
+        with self.transaction() as session:
+            acquire_mutation_locks(session, device=[device_id])
+            if self._device(session, device_id) is None:
+                raise ObjectNotFound()
+            session.execute(
+                update(db.devices)
+                .where(db.devices.c.device_id == device_id)
+                .values(**patch.model_dump())
+            )
+            return self._device(session, device_id)
 
     def device_page(self, options: PageOptions = PageOptions()) -> Page[Device]:
         options = PageOptions.model_validate(options.model_dump())

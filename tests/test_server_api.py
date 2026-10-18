@@ -399,3 +399,77 @@ def test_cli_single_worker_without_forwarding_or_access_logs(server_settings, mo
     assert main([]) == 0
     assert captured["workers"] == 1 and captured["reload"] is False
     assert captured["proxy_headers"] is False and captured["access_log"] is False
+
+
+def test_display_name_management_preserves_registration_and_readings(client):
+    csrf = login(client)
+    headers = {"X-CSRF-Token": csrf, "Origin": "http://testserver"}
+    summary = registration()
+    body = summary.model_dump(mode="json")
+    site, device = str(summary.site_id), str(summary.device_id)
+    assert client.post(P + "/registrations", json=body, headers=headers).status_code == 200
+    for path, value in ((f"/sites/{site}", "Home"), (f"/devices/{device}", "Logger")):
+        response = client.patch(P + path, json={"display_name": value}, headers=headers)
+        assert response.status_code == 200
+        assert response.json()["data"]["display_name"] == value
+        for invalid in (
+            None,
+            123,
+            "x" * 101,
+            "line\nline",
+            "tab\t",
+            "\x7f",
+            "\u0085",
+            "\u2028",
+            "\u2029",
+        ):
+            assert (
+                client.patch(P + path, json={"display_name": invalid}, headers=headers).status_code
+                == 422
+            )
+    payload = batch(summary)
+    upload_headers = {"Authorization": "Bearer " + body["token"]}
+    assert (
+        client.post(
+            "/api/v1/ingest/batches", json=payload.model_dump(mode="json"), headers=upload_headers
+        ).status_code
+        == 200
+    )
+    csv_before = client.get(P + f"/sites/{site}/readings.csv").content
+    assert client.post(P + "/registrations", json=body, headers=headers).status_code == 200
+    assert client.get(P + f"/sites/{site}").json()["data"]["site"]["display_name"] == "Home"
+    assert client.get(P + f"/devices/{device}").json()["data"]["device"]["display_name"] == "Logger"
+    assert (
+        client.patch(P + f"/devices/{device}", json={"address": "bad"}, headers=headers).status_code
+        == 422
+    )
+    assert (
+        client.patch(
+            P + f"/devices/{uuid4()}", json={"display_name": "Missing"}, headers=headers
+        ).status_code
+        == 404
+    )
+    for path in (f"/sites/{site}", f"/devices/{device}"):
+        assert (
+            client.patch(P + path, json={"display_name": ""}, headers=headers).json()["data"][
+                "display_name"
+            ]
+            == ""
+        )
+    assert client.get(P + f"/sites/{site}/readings.csv").content == csv_before
+    assert (
+        client.post(
+            "/api/v1/ingest/batches", json=payload.model_dump(mode="json"), headers=upload_headers
+        ).status_code
+        == 200
+    )
+    created = client.post(
+        P + "/sites", json={"site_id": str(uuid4()), "display_name": "New site"}, headers=headers
+    )
+    assert created.status_code == 200 and created.json()["data"]["display_name"] == "New site"
+    assert (
+        client.post(
+            P + "/registrations/preview", json={**body, "display_name": "invalid"}, headers=headers
+        ).status_code
+        == 422
+    )

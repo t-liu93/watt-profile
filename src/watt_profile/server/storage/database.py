@@ -6,7 +6,8 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import Engine, create_engine, event, inspect, text
 
-HEAD = "server_0001"
+HEAD = "server_0002"
+KNOWN_REVISIONS = {"server_0001", HEAD}
 MIGRATION_NAMESPACE = 1465078855
 MIGRATION_KEY = 1
 
@@ -52,7 +53,7 @@ def migrate(engine: Engine) -> None:
                     .scalars()
                     .all()
                 )
-                if revisions and revisions != [HEAD]:
+                if revisions and (len(revisions) != 1 or revisions[0] not in KNOWN_REVISIONS):
                     raise MigrationError("unknown_database_revision")
             configuration.attributes["connection"] = connection
             command.upgrade(configuration, "head")

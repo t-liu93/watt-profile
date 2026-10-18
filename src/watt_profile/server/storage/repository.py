@@ -21,6 +21,7 @@ from watt_profile.contracts.domain import (
     decode_snapshot,
     measurement_point_id,
 )
+from watt_profile.server.names import DisplayName
 from watt_profile.server.storage import schema as db
 
 MUTATION_NAMESPACE = 1465078856
@@ -28,6 +29,7 @@ LOCK_CLASSES = ("device", "site", "session", "source")
 
 
 class Site(DomainModel):
+    display_name: DisplayName = ""
     site_id: UUID4
     address: StrictStr = ""
     description: StrictStr = ""

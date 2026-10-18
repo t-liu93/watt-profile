@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Annotated, Literal
 from pydantic import ConfigDict, Field, StrictInt, StrictStr, ValidationError, field_validator
 
 from watt_profile.contracts.domain import UUID4, DomainModel, UtcTime
+from watt_profile.server.names import DisplayName
 
 if TYPE_CHECKING:
     from watt_profile.server.storage.registration import RegistrationRepository
@@ -87,12 +88,18 @@ def validate_summary(summary: RegistrationSummary) -> RegistrationSummary:
 
 
 class SiteInput(DomainModel):
+    display_name: DisplayName = ""
     site_id: UUID4
     address: Address = ""
     description: Description = ""
 
+    @property
+    def display_label(self) -> str:
+        return self.display_name or self.address or str(self.site_id)[:8]
+
 
 class SitePatch(DomainModel):
+    display_name: DisplayName | None = None
     address: Address | None = None
     description: Description | None = None
 
@@ -107,10 +114,19 @@ class DeviceInput(DomainModel):
     device_id: UUID4
 
 
+class DevicePatch(DomainModel):
+    display_name: DisplayName
+
+
 class Device(DomainModel):
+    display_name: DisplayName = ""
     device_id: UUID4
     created_at: UtcTime
     last_authenticated_contact_at: UtcTime | None
+
+    @property
+    def display_label(self) -> str:
+        return self.display_name or str(self.device_id)[:8]
 
 
 class Credential(DomainModel):
