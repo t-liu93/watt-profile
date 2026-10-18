@@ -93,3 +93,11 @@ td { min-width: 100px; max-width: 400px; overflow-wrap: anywhere; white-space: p
 .site-tabs { flex-direction: row; flex-wrap: wrap; }
 .confirmation-dialog { background: var(--panel); color: var(--foreground); max-width: calc(100vw - 32px); border: 1px solid var(--edge); border-radius: 8px; }
 .confirmation-dialog > button:last-child { display: none; }
+.analysis-chart { width: 100%; height: 370px; min-width: 0; overflow: hidden; }
+.analysis-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.content pre { overflow: auto; max-height: 480px; padding: 12px; background: var(--background); font-size: 12px; }
+.content details { margin: 16px 0; }
+.content summary { cursor: pointer; }
+@media (max-width: 760px) { .analysis-grid { grid-template-columns: minmax(0, 1fr); } .analysis-chart { height: 330px; } }
+.content p { overflow-wrap: anywhere; }
+.analysis-panel td, .analysis-panel dd, .content time { font-family: ui-monospace, monospace; }

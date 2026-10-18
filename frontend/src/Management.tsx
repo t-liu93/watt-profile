@@ -3,6 +3,7 @@ import type { ComponentProps, FormEvent, ReactNode } from 'react';
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { Button, ConfirmationDialog } from './components/ui';
 import { resources } from './i18n';
+import { SiteOverview } from './Analysis';
 import type { Language } from './i18n';
 import { managementResources } from './management-i18n';
 import { APIClient, RequestOwner } from './lib/api';
@@ -183,14 +184,14 @@ function SiteSettings({ client, language, id }: Props & {
     const status = useStatusRefresh<SiteStatus>(client, m, '/sites/' + id);
     const { result, load } = status;
     const [confirmation, setConfirmation] = useState<Record<string, string> | null>(null);
-    const [params, setParams] = useSearchParams(), tab = params.get('tab') ?? 'settings';
+    const [params] = useSearchParams(), tab = params.get('tab') ?? 'overview';
     return <>
     <h2>{result ? siteLabel(result.site) : resources[language].site}</h2>
     <p className="identifier">{id}</p>
-    <nav className="site-tabs" aria-label={resources[language].site}>{(['overview', 'usage', 'phases', 'quality', 'raw', 'settings'] as const).map(key => <Link key={key} className={tab === key ? 'active' : ''} to={'?tab=' + key} onClick={() => { setConfirmation(null); setParams({ tab: key }); }}>{t[key]}</Link>)}</nav>
+    <nav className="site-tabs" aria-label={resources[language].site}>{(['overview', 'usage', 'phases', 'quality', 'raw', 'settings'] as const).map(key => <Link key={key} className={tab === key ? 'active' : ''} to={(() => { const next = new URLSearchParams(params); next.set('tab', key); return '?' + next; })()} onClick={() => { setConfirmation(null); }}>{t[key]}</Link>)}</nav>
     <Feedback m={m} language={language}/>
-    <StatusRefresh status={status} language={language}/>
-    <Button id="reload" onClick={() => { if (!m.isBusy()) void load(); }}>{t.reload}</Button>{!result && !m.error && !status.error && <p role="status">{t.loading}</p>}{tab !== 'settings' ? <Panel title={t[tab as 'overview'] ?? t.overview}>
+    <div hidden={tab !== 'settings'}><StatusRefresh status={status} language={language}/>
+    <Button id="reload" onClick={() => { if (!m.isBusy()) void load(); }}>{t.reload}</Button></div>{!result && !m.error && !status.error && <p role="status">{t.loading}</p>}{tab === 'overview' ? <SiteOverview client={client} language={language} id={id}/> : tab !== 'settings' ? <Panel title={t[tab as 'overview'] ?? t.overview}>
         <p>{t.upcoming}</p>
         </Panel> : result && <>
         <Panel title={t.settings}>

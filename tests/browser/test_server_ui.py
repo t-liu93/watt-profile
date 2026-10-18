@@ -119,6 +119,7 @@ def test_logger_registration_preserved_metadata_and_secret_cleanup(server_browse
     page.get_by_role("button", name="Confirm registration").click()
     expect(page.locator("#registration-preview")).to_be_hidden()
     page.get_by_role("link", name="Open registered site").click()
+    page.get_by_role("link", name="Settings", exact=True).click()
     expect(page.locator("#status")).to_contain_text(summary["address"])
     page.get_by_label("Address", exact=True).fill("Explicit new address\nline 2")
     page.get_by_role("button", name="Save metadata").click()
@@ -491,13 +492,17 @@ def test_management_polling_preserves_drafts_failure_timestamp_and_stops_on_expi
     page.clock.install()
     register(page, raw)
     for path, field, draft in [
-        ("/sites/" + summary["site_id"], "Address", "Unsaved synthetic site draft"),
+        (
+            "/sites/" + summary["site_id"] + "?tab=settings",
+            "Address",
+            "Unsaved synthetic site draft",
+        ),
         ("/devices/" + summary["device_id"], "Display name", "Unsaved synthetic device draft"),
     ]:
         page.goto(origin + path)
         expect(page.locator("#status-updated time")).to_be_visible()
         page.get_by_label(field, exact=True).fill(draft)
-        endpoint = "**/api/admin/v1" + path
+        endpoint = "**/api/admin/v1" + path.split("?")[0]
         held = []
         page.route(
             endpoint,
@@ -584,6 +589,7 @@ def test_names_search_pagination_and_selected_language_validation(server_browser
     page, origin, _, raw, summary, _ = server_browser
     register(page, raw)
     page.get_by_role("link", name="Open registered site").click()
+    page.get_by_role("link", name="Settings", exact=True).click()
     page.get_by_label("Display name", exact=True).fill("Synthetic <b> %_ name")
     page.get_by_role("button", name="Save metadata").click()
     expect(page.get_by_role("dialog")).to_contain_text("Site UUID and historical readings")
