@@ -57,6 +57,8 @@ export WATT_FRONTEND_DIGEST
 # Explicit selectors opt in to services/browser acceptance; default pytest skips these.
 "$python_bin" -m pytest tests/browser -q -o cache_dir="$ci_root/pytest-cache" \
     --basetemp="$ci_root/browser"
+"$python_bin" -m pytest tests/performance -q -s -o cache_dir="$ci_root/pytest-cache" \
+    --basetemp="$ci_root/performance"
 nonce=$("$python_bin" -c 'import secrets; print(secrets.token_hex(8))')
 export WATT_TEST_COMPOSE_PROJECT="watt-m3-ci-$nonce"
 export WATT_DEV_IMAGE_TAG="$WATT_TEST_COMPOSE_PROJECT"

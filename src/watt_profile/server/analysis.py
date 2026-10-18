@@ -214,6 +214,9 @@ class AnalysisService:
                 with connection.begin():
                     connection.execute(text("SET TRANSACTION READ ONLY"))
                     connection.execute(text("SET LOCAL statement_timeout = '10s'"))
+                    # Interactive aggregate requests are shorter than the JIT
+                    # compilation cost of their expanded diagnostic plans.
+                    connection.execute(text("SET LOCAL jit = off"))
                     yield connection
         except SQLAlchemyError:
             raise QueryUnavailable() from None

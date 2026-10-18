@@ -104,11 +104,13 @@ def calculate_quality(read: "AnalysisRead", *, gaps=None, problems=None) -> Qual
         received_from=c.range.received_from,
         received_before=c.range.received_before,
     )
-    metric_values = ", ".join(f"('{m}', s.{m})" for m in _METRICS)
+    # Aggregate each fixed projection column before constructing the bounded
+    # metric result; do not expand every reading into eighteen metric rows.
+    metric_counts = ", ".join(f"count(s.{m}) AS {m}" for m in _METRICS)
     summary = (
         read.connection.execute(
-            text("""
-        SELECT count(*) AS actual_count,
+            text(f"""
+        SELECT count(*) AS actual_count, {metric_counts},
           count(*) FILTER (WHERE energy_import_t1_kwh IS NOT NULL
             AND energy_import_t2_kwh IS NOT NULL) AS import_valid,
           count(*) FILTER (WHERE energy_import_t1_kwh IS NULL
@@ -127,24 +129,14 @@ def calculate_quality(read: "AnalysisRead", *, gaps=None, problems=None) -> Qual
         .mappings()
         .one()
     )
-    validity = (
-        read.connection.execute(
-            text(f"""
-        WITH metrics(metric) AS (VALUES {", ".join(f"('{m}')" for m in _METRICS)}), counts AS (
-          SELECT metric, count(value) AS valid_count, count(*)-count(value) AS missing_count
-          FROM snapshots s CROSS JOIN LATERAL (VALUES {metric_values}) v(metric,value)
-          WHERE site_id=:site_id AND session_id=:session_id
-            AND received_at >= :received_from AND received_at < :received_before
-          GROUP BY metric
-        ) SELECT metrics.metric, coalesce(valid_count,0) valid_count,
-            coalesce(missing_count,0) missing_count FROM metrics LEFT JOIN counts USING(metric)
-        ORDER BY metrics.metric
-    """),
-            params,
-        )
-        .mappings()
-        .all()
-    )
+    validity = [
+        {
+            "metric": name,
+            "valid_count": summary[name],
+            "missing_count": summary["actual_count"] - summary[name],
+        }
+        for name in sorted(_METRICS)
+    ]
     duration = c.range.received_before - c.range.received_from
     duration_us = (duration.days * 86400 + duration.seconds) * 1_000_000 + duration.microseconds
     expected = (duration_us + 10_000_000 - 1) // 10_000_000

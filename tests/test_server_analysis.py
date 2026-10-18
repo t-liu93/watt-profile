@@ -225,6 +225,20 @@ def test_read_snapshot_independent_writer_and_transaction_configuration(analysis
         assert connection.scalar(text("SHOW statement_timeout")) == "30s"
 
 
+def test_analysis_jit_setting_is_local_to_reused_connection(analysis_data):
+    service, _, _, _ = analysis_data
+    with service.engine.connect() as connection:
+        default = connection.scalar(text("SHOW jit"))
+        backend = connection.scalar(text("SELECT pg_backend_pid()"))
+    with service.transaction() as connection:
+        assert connection.scalar(text("SELECT pg_backend_pid()")) == backend
+        assert connection.scalar(text("SHOW jit")) == "off"
+    with service.engine.connect() as connection:
+        assert connection.scalar(text("SELECT pg_backend_pid()")) == backend
+        assert connection.scalar(text("SHOW jit")) == default
+    assert service.engine.pool.checkedout() == 0
+
+
 def test_read_only_and_errors_close_connection(analysis_data):
     service, summary, _, add = analysis_data
     descriptor, _ = add(times=(datetime(2026, 3, 10, tzinfo=UTC),))
