@@ -83,3 +83,9 @@ docker build --build-arg WATT_FRONTEND_DIGEST -f deploy/server/Dockerfile -t wat
 在独立 Python 3.12 虚拟环境安装开发锁定依赖，再将 Chromium 安装到新建的 `PLAYWRIGHT_BROWSERS_PATH`（`python -m playwright install --with-deps chromium`）。未激活虚拟环境时，设置 `WATT_CI_PYTHON` 指向其 Python，然后在仓库执行 `bash scripts/ci.sh`。需要可用的 Docker 和 Compose。数据库/浏览器服务只使用合成数据、随机名称和临时回环端口，并丢弃部署数据库 URL。脚本负责清理自己创建的临时目录和 Logger 项目/镜像；Server 与 PostgreSQL fixture 清理各自项目、卷和镜像。不接管已有资源，不进行全局 Docker prune。调用者在结束后清理自己另建的虚拟环境、浏览器目录和依赖缓存。
 
 验收需要工作流语法检查、发布 tag 边界测试、默认及显式 CI 测试集、本机原生候选镜像冒烟测试，以及资源清理核对。云端 AMD64/ARM64 构建发布、真实树莓派走查在所有者触发版本后另行记录。
+
+## M5 产物复用与验证状态
+
+检查产物的 producer 固定 Node 24.22.0／npm 11.16.0 和两份前端锁，安装／准备／校验组件，运行前端检查并只构建一次。摘要随上传的产物交付。consumer 验证该可信摘要及文件／锁哈希，再将相同字节暂存进 Python 包及原生 Server 镜像；各架构不单独重建前端。发布矩阵仍在原生 AMD64、ARM64 上覆盖 Logger 和 Server；Server smoke 在无 Node、无网络条件下验证打包前端。
+
+M5 本地完整 CI、合成 Compose、四周分析性能及两类 AMD64 离线镜像 smoke 已通过。M5 云端 workflow／原生 ARM64 仍未运行：本轮本地实现没有 push／tag／发布授权。上文 M4 历史发布结果保持独立。精确测量及待完成的所有者走查／组件冻结见 [M5 验收记录](milestone/m5_zh.md#验收记录)；自动已知 schema 迁移及所有者备份／恢复边界见 [Server 升级说明](../README_zh.md#m5-分析工作台与升级)。

@@ -2,7 +2,7 @@
 
 > **English — source of truth** · [中文](post-mvp-roadmap_zh.md)
 
-Status, 2026-10-18: **The MVP is accepted and complete; M5 implementation is in progress.** This high-level direction and the [M5 design and atomic task cards](milestone/m5.md) are agreed. Verified task results are maintained in M5; owner walkthrough and milestone acceptance remain pending.
+Status, 2026-10-18: **The MVP is accepted and complete; M5 implementation and local automated verification are complete; owner walkthrough/component freeze and M5 acceptance remain pending.** This high-level direction and the [M5 design and atomic task cards](milestone/m5.md) are agreed. Verified task results are maintained in M5; owner walkthrough and milestone acceptance remain pending.
 
 This is the ongoing roadmap for development after the MVP. It records product direction, stage goals, priorities, dependencies, and changes to scope. Detailed designs, interface contracts, atomic tasks, and acceptance records remain in each milestone's English document and Chinese mirror under `docs/milestone/`.
 
@@ -14,7 +14,7 @@ The MVP established a reliable data path:
 
 **On-site setup → P1 collection → local persistence → offline backlog recovery and upload → Server storage, queries, and CSV export.**
 
-The Server currently offers basic administration and raw reading access. Charts, derived statistics, analysis reports, and design assistance are not implemented. The [M4 closure record](milestone/m4.md#final-owner-acceptance-and-mvp-closure-2026-10-18) distinguishes owner acceptance from measurements that were not independently recorded; this roadmap does not reopen that acceptance or claim those measurements passed.
+The Server now provides the M5 analysis workspace, charts, derived statistics, administration and raw/CSV traceability. Analysis reports and design assistance remain future work. The [M4 closure record](milestone/m4.md#final-owner-acceptance-and-mvp-closure-2026-10-18) distinguishes owner acceptance from measurements that were not independently recorded; this roadmap does not reopen that acceptance or claim those measurements passed.
 
 Post-MVP work should let internal operators and designers:
 
@@ -52,7 +52,7 @@ M5 retains the existing Logger upload contract.
 
 An internal user can open a site, inspect several weeks of data, identify major import/export patterns and gaps, examine phase metrics, and verify results against raw readings. Existing administration and export workflows remain usable.
 
-Verify statistical correctness, query and chart responsiveness with four weeks of synthetic data, both interface languages, container delivery, and regression of the existing upload workflow. The [M5 design](milestone/m5.md) defines the exact checks and acceptance thresholds before implementation.
+Verify statistical correctness, query and chart responsiveness with four weeks of synthetic data, both interface languages, container delivery, and regression of the existing upload workflow. The [M5 design](milestone/m5.md) records the exact checks, measured results and pending owner acceptance.
 
 **Excluded from M5:** AI reports, PDF export, battery/PV sizing recommendations, customer accounts, and remote device management.
 
