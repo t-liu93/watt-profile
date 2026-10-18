@@ -62,10 +62,23 @@ Server 已实现管理员注册、授权批量接收、读数和 CSV 导出；�
 
 将[脱敏示例](deploy/server/.env.example)复制到被忽略的 `deploy/server/.env.local` 并替换所有占位符。将 `WATT_SERVER_PUBLIC_ORIGIN` 设为外部浏览器源（经 Nginx 使用 HTTPS），HTTPS 保持 `WATT_SERVER_COOKIE_SECURE=true`；若上游需要可达接口或其他端口，选择 `WATT_SERVER_BIND_ADDRESS`／`WATT_SERVER_PUBLISHED_PORT`。提供私有 DB／应用凭据目录（0700）及文件（0600）；应用文件归 UID/GID 10001 所有并只读挂载。DB 目录包含 `password`；应用目录包含 `database-url` 和 `admin-password`，DB 凭据必须一致且不提供开发默认值。启动前阅读[操作说明](docs/milestone/m3_zh.md#m3-11-部署操作)：
 
+本地源码构建前，先激活 Python 3.12，并将准确版本 Node **24.22.0** 和 npm **11.16.0** 放入 `PATH`。在仓库根目录完成一次构建／检查，导出记录的摘要并暂存同一份字节，然后启动 Compose（在同一 shell 中保留该导出变量）：
+
 ```sh
+python scripts/frontend_artifact.py build
+export WATT_FRONTEND_DIGEST="$(python -c 'import json; print(json.load(open("frontend/dist/artifact.json"))["digest"])')"
+python scripts/frontend_artifact.py stage --expected "$WATT_FRONTEND_DIGEST"
 docker compose --env-file deploy/server/.env.local -p watt-server -f deploy/server/compose.yml config --quiet
 docker compose --env-file deploy/server/.env.local -p watt-server -f deploy/server/compose.yml up --build -d --wait --wait-timeout 120 server
 docker compose --env-file deploy/server/.env.local -p watt-server -f deploy/server/compose.yml down
 ```
 
-开发采用 `admin`／`testtesttesttest` 和回环端口 18081（`WATT_DEV_SERVER_PORT` 可覆盖）。选择新的可丢弃 `watt-m3-...` 项目及匹配的 `WATT_DEV_IMAGE_TAG`；`docker compose -p PROJECT -f docker-compose.dev.yml up --build -d --wait --wait-timeout 120 server` 只启动 PostgreSQL／初始化依赖。正常 `down` 保留数据及凭据；仅可删除验证时创建的可丢弃项目卷。
+先完成上述相同的前端构建／导出／暂存步骤，再启动开发环境。开发采用 `admin`／`testtesttesttest` 和回环端口 18081（`WATT_DEV_SERVER_PORT` 可覆盖）。选择新的可丢弃 `watt-m3-...` 项目及匹配的 `WATT_DEV_IMAGE_TAG`；`docker compose -p PROJECT -f docker-compose.dev.yml up --build -d --wait --wait-timeout 120 server` 只启动 PostgreSQL／初始化依赖。正常 `down` 保留数据及凭据；仅可删除验证时创建的可丢弃项目卷。
+
+构建命令安装锁定的 npm 依赖，准备／校验组件，执行 lint／类型检查／测试，并写入 `frontend/dist/artifact.json`。前端变更后重新构建并导出摘要。直接使用 Docker 构建时，还必须显式传入已导出的变量：
+
+```sh
+docker build --build-arg WATT_FRONTEND_DIGEST -f deploy/server/Dockerfile -t watt-profile-server:local .
+```
+
+通过 `up --no-build --pull always` 启动已发布镜像无需本地 Node／静态资源或该构建参数。CI／发布的消费方使用已检查制品生成方提供的可信摘要；不要用不可信下载制品中读取的摘要替换它。参阅 [CI 与发布说明](docs/ci-and-release_zh.md)。

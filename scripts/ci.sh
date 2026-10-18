@@ -43,6 +43,14 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+# Local entry builds once; reusable CI supplies its trusted artifact digest.
+if [[ -z "${WATT_FRONTEND_DIGEST:-}" ]]; then
+    "$python_bin" scripts/frontend_artifact.py build
+    WATT_FRONTEND_DIGEST=$("$python_bin" -c \
+        'import json; print(json.load(open("frontend/dist/artifact.json"))["digest"])')
+fi
+export WATT_FRONTEND_DIGEST
+"$python_bin" scripts/frontend_artifact.py stage --expected "$WATT_FRONTEND_DIGEST"
 "$python_bin" -m ruff check .
 "$python_bin" -m ruff format --check .
 "$python_bin" -m pytest -q -o cache_dir="$ci_root/pytest-cache" --basetemp="$ci_root/unit"

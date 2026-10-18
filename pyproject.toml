@@ -35,7 +35,7 @@ dev = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-watt_profile = ["logger/templates/**/*.html", "logger/static/**/*", "logger/storage/migrations/**/*.py", "server/templates/**/*", "server/static/**/*", "server/storage/migrations/**/*.py"]
+watt_profile = ["logger/templates/**/*.html", "logger/static/**/*", "logger/storage/migrations/**/*.py", "server/templates/**/*", "server/static/**/*", "server/static/frontend/.vite/manifest.json", "server/storage/migrations/**/*.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

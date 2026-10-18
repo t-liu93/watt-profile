@@ -62,10 +62,23 @@ The Server implements administrator registration, authorized batch ingest, readi
 
 Copy the [sanitized example](deploy/server/.env.example) to ignored `deploy/server/.env.local` and replace every placeholder. Set `WATT_SERVER_PUBLIC_ORIGIN` to the external browser origin (HTTPS behind Nginx), keep `WATT_SERVER_COOKIE_SECURE=true` for HTTPS, and select `WATT_SERVER_BIND_ADDRESS` / `WATT_SERVER_PUBLISHED_PORT` if the upstream needs a reachable interface or another port. Provide private DB/application credential directories (0700) and files (0600); application files belong to UID/GID 10001 and mount read-only. The DB directory contains `password`; the application directory contains `database-url` and `admin-password`, with matching DB credentials and no development defaults. See the [operating instructions](docs/milestone/m3.md#m3-11-deployment-operations) before starting:
 
+For a local source build, first activate Python 3.12 and put exactly Node **24.22.0** and npm **11.16.0** on `PATH`. From the repository root, build/check once, export the recorded digest, and stage the same bytes before starting Compose (keep the export in the same shell):
+
 ```sh
+python scripts/frontend_artifact.py build
+export WATT_FRONTEND_DIGEST="$(python -c 'import json; print(json.load(open("frontend/dist/artifact.json"))["digest"])')"
+python scripts/frontend_artifact.py stage --expected "$WATT_FRONTEND_DIGEST"
 docker compose --env-file deploy/server/.env.local -p watt-server -f deploy/server/compose.yml config --quiet
 docker compose --env-file deploy/server/.env.local -p watt-server -f deploy/server/compose.yml up --build -d --wait --wait-timeout 120 server
 docker compose --env-file deploy/server/.env.local -p watt-server -f deploy/server/compose.yml down
 ```
 
-Development uses `admin` / `testtesttesttest` and loopback 18081 (`WATT_DEV_SERVER_PORT` override). Choose a new disposable `watt-m3-...` project and matching `WATT_DEV_IMAGE_TAG`; `docker compose -p PROJECT -f docker-compose.dev.yml up --build -d --wait --wait-timeout 120 server` starts only PostgreSQL/setup dependencies. Normal `down` preserves data and credentials; removal of volumes is only for disposable projects created for verification.
+After the same frontend build/export/stage steps above, development uses `admin` / `testtesttesttest` and loopback 18081 (`WATT_DEV_SERVER_PORT` override). Choose a new disposable `watt-m3-...` project and matching `WATT_DEV_IMAGE_TAG`; `docker compose -p PROJECT -f docker-compose.dev.yml up --build -d --wait --wait-timeout 120 server` starts only PostgreSQL/setup dependencies. Normal `down` preserves data and credentials; removal of volumes is only for disposable projects created for verification.
+
+The build command installs locked npm dependencies, prepares/verifies components, runs lint/type/tests, and writes `frontend/dist/artifact.json`. Rebuild and export again after frontend changes. For a direct Docker build, the exported variable must also be passed explicitly:
+
+```sh
+docker build --build-arg WATT_FRONTEND_DIGEST -f deploy/server/Dockerfile -t watt-profile-server:local .
+```
+
+Published images started with `up --no-build --pull always` need neither local Node/assets nor this build argument. CI/release consumers use the trusted digest supplied by their checked artifact producer; do not replace it with a digest taken from an untrusted downloaded artifact. See [CI and release instructions](docs/ci-and-release.md).

@@ -57,6 +57,8 @@ services:
     build:
       context: .
       dockerfile: deploy/server/Dockerfile
+      args:
+        WATT_FRONTEND_DIGEST: ${WATT_FRONTEND_DIGEST:-}
     user: "0:0"
     network_mode: none
     entrypoint: ["python", "-c"]
@@ -110,6 +112,8 @@ services:
     build:
       context: .
       dockerfile: deploy/server/Dockerfile
+      args:
+        WATT_FRONTEND_DIGEST: ${WATT_FRONTEND_DIGEST:-}
     user: "10001:10001"
     depends_on:
       server-db:

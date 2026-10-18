@@ -62,6 +62,22 @@ Do not use `down --volumes` on a real Logger installation. Upgrade by changing t
 
 For the Server, set `WATT_SERVER_IMAGE=ghcr.io/t-liu93/watt-profile-server:VERSION` in its ignored environment file and use the same `up --no-build --pull always` pattern with `deploy/server/compose.yml` and service `server`. PostgreSQL remains private, with one exposed application HTTP port; credentials and external Nginx stay owner-managed as described in [M3](milestone/m3.md#m3-11-deployment-operations).
 
+## Local frontend artifact and image builds
+
+Use Python 3.12, Node **24.22.0** and npm **11.16.0** on `PATH`. From the repository root, in one shell:
+
+```sh
+python scripts/frontend_artifact.py build
+export WATT_FRONTEND_DIGEST="$(python -c 'import json; print(json.load(open("frontend/dist/artifact.json"))["digest"])')"
+python scripts/frontend_artifact.py stage --expected "$WATT_FRONTEND_DIGEST"
+export WATT_DEV_IMAGE_TAG=watt-local-UNIQUE
+docker compose -p "$WATT_DEV_IMAGE_TAG" -f docker-compose.dev.yml up --build -d --wait --wait-timeout 120 server
+# Direct Docker alternative after the same build/export/stage:
+docker build --build-arg WATT_FRONTEND_DIGEST -f deploy/server/Dockerfile -t watt-profile-server:local .
+```
+
+Choose an unused disposable project name and `WATT_DEV_IMAGE_TAG` before starting; see [Server containers](../README.md#server-containers) for standalone credentials/configuration and startup. The build performs locked installation, component preparation/verification, lint, type checking, tests and bundling. Export/stage again after rebuilding. CI/release reuse the producer's trusted digest with `stage --expected`; they must not derive a replacement digest from an untrusted artifact. A missing digest fails image building with configuration instructions. Published-image `up --no-build` needs no local artifact/digest.
+
 ## Local verification and cleanup
 
 Install the development lock in an isolated Python 3.12 virtual environment, then install Chromium (`python -m playwright install --with-deps chromium`) into a new `PLAYWRIGHT_BROWSERS_PATH`. Set `WATT_CI_PYTHON` to that environment's Python if it is not activated, then run `bash scripts/ci.sh` from the checkout. Docker and Compose must be available. Database/browser services use only synthetic data, random names and temporary loopback ports; deployment database URLs are discarded. The script owns and removes its temporary directories and Logger project/image. Server and PostgreSQL fixtures remove their own projects, volumes and images. Existing resources are never adopted; no global Docker prune is used. The caller removes its separately created virtual environment, browser directory and dependency cache when finished.

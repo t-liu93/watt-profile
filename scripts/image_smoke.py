@@ -3,6 +3,7 @@
 import importlib
 import os
 import platform
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -87,6 +88,14 @@ def main() -> None:
         capture_output=True,
         timeout=10,
     )
+    if component == "server":
+        from watt_profile.server.frontend import PACKAGED, entry_assets
+        from watt_profile.server.frontend_artifact import verify
+
+        metadata = verify(PACKAGED)
+        entry_assets(PACKAGED)
+        print("Frontend artifact:", metadata["digest"], metadata["locks"])
+        assert not shutil.which("node")
     if component == "logger":
         importlib.import_module("httpx")
         importlib.import_module("watt_profile.logger.upload")

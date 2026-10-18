@@ -6,3 +6,7 @@
 !src/**
 src/**/__pycache__/
 src/**/*.pyc
+
+# The staged, checked Server artifact (including hidden Vite manifest) is build input.
+!src/watt_profile/server/static/frontend/
+!src/watt_profile/server/static/frontend/**

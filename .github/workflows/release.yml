@@ -56,12 +56,22 @@ jobs:
         with:
           ref: ${{ needs.validate-tag.outputs.source_sha }}
           persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: checked-frontend
+          path: frontend/dist
+      - name: Verify and stage the checked frontend without rebuilding
+        env:
+          FRONTEND_DIGEST: ${{ needs.full-checks.outputs.frontend_digest }}
+        run: python scripts/frontend_artifact.py stage --expected "$FRONTEND_DIGEST"
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
           file: deploy/${{ matrix.component }}/Dockerfile
           platforms: linux/${{ matrix.architecture }}
+          build-args: |
+            WATT_FRONTEND_DIGEST=${{ needs.full-checks.outputs.frontend_digest }}
           load: true
           push: false
           provenance: false

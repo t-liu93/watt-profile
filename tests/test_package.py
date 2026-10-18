@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -16,6 +17,8 @@ def test_installed_wheel_includes_logger_resources(tmp_path: Path) -> None:
         checkout,
         ignore=shutil.ignore_patterns(
             ".git",
+            "node_modules",
+            ".ui-cache",
             ".venv",
             "__pycache__",
             "*.egg-info",
@@ -28,6 +31,9 @@ def test_installed_wheel_includes_logger_resources(tmp_path: Path) -> None:
             "*.sqlite3*",
         ),
     )
+    expected_digest = json.loads(
+        (checkout / "src/watt_profile/server/static/frontend/artifact.json").read_text()
+    )["digest"]
     wheel_dir = tmp_path / "wheels"
     wheel_dir.mkdir()
     subprocess.run(
@@ -94,6 +100,18 @@ assert root.joinpath('server/templates/base.html').is_file()
 assert root.joinpath('server/static/server.css').is_file()
 assert root.joinpath('server/static/server.js').is_file()
 assert root.joinpath('server/static/theme.js').is_file()
+import hashlib, json
+artifact = root.joinpath('server/static/frontend')
+metadata = json.loads(artifact.joinpath('artifact.json').read_text())
+import sys
+assert metadata['digest'] == sys.argv[1]
+assert artifact.joinpath('.vite/manifest.json').is_file()
+assert metadata['files']
+for name, digest in metadata['files'].items():
+    assert hashlib.sha256(artifact.joinpath(name).read_bytes()).hexdigest() == digest
+payload = {key: metadata[key] for key in ('format', 'files', 'locks')}
+encoded = json.dumps(payload, sort_keys=True, separators=(',', ':')).encode()
+assert hashlib.sha256(encoded).hexdigest() == metadata['digest']
 assert root.joinpath('server/static/login.js').is_file()
 assert root.joinpath('server/templates/login.html').is_file()
 assert root.joinpath('logger/capacity.py').is_file()
@@ -106,7 +124,7 @@ socket.socket.connect = deny_network
 print(root)
 """
     result = subprocess.run(
-        [str(installed_python), "-c", script],
+        [str(installed_python), "-c", script, expected_digest],
         cwd=tmp_path,
         env=env,
         check=True,

@@ -14,11 +14,17 @@ on:
         required: false
         default: ''
 
+    outputs:
+      frontend_digest:
+        value: ${{ jobs.checks.outputs.frontend_digest }}
+
 permissions:
   contents: read
 
 jobs:
   checks:
+    outputs:
+      frontend_digest: ${{ steps.frontend.outputs.digest }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -35,6 +41,29 @@ jobs:
         run: |
           python -m pip install -r requirements-dev.lock
           python -m pip install --no-build-isolation --no-deps -e .
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.22.0'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Select the locked npm toolchain
+        run: |
+          npm install --global npm@11.16.0
+          test "$(node --version)" = v24.22.0
+          test "$(npm --version)" = 11.16.0
+      - name: Prepare, check and build the single frontend artifact
+        id: frontend
+        run: |
+          python scripts/frontend_artifact.py build
+          digest=$(python -c "import json; print(json.load(open('frontend/dist/artifact.json'))['digest'])")
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: checked-frontend
+          path: frontend/dist/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
       - name: Install Chromium
         env:
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/watt-chromium
@@ -42,4 +71,5 @@ jobs:
       - name: Run lint, unit, database, browser and Compose acceptance
         env:
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/watt-chromium
+          WATT_FRONTEND_DIGEST: ${{ steps.frontend.outputs.digest }}
         run: bash scripts/ci.sh

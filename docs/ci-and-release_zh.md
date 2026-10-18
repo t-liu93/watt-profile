@@ -62,6 +62,22 @@ docker compose --env-file deploy/logger/.env.local -p watt-logger -f deploy/logg
 
 Server 可在其被忽略的环境文件中设置 `WATT_SERVER_IMAGE=ghcr.io/t-liu93/watt-profile-server:VERSION`，使用相同的 `up --no-build --pull always` 方式，对应 `deploy/server/compose.yml` 和 `server` 服务。PostgreSQL 不暴露宿主机端口，仅应用暴露一个 HTTP 端口；凭据和外部 Nginx 仍由所有者按 [M3](milestone/m3_zh.md#m3-11-部署操作) 管理。
 
+## 本地前端制品与镜像构建
+
+将 Python 3.12、Node **24.22.0** 和 npm **11.16.0** 放入 `PATH`。在仓库根目录的同一 shell 中执行：
+
+```sh
+python scripts/frontend_artifact.py build
+export WATT_FRONTEND_DIGEST="$(python -c 'import json; print(json.load(open("frontend/dist/artifact.json"))["digest"])')"
+python scripts/frontend_artifact.py stage --expected "$WATT_FRONTEND_DIGEST"
+export WATT_DEV_IMAGE_TAG=watt-local-UNIQUE
+docker compose -p "$WATT_DEV_IMAGE_TAG" -f docker-compose.dev.yml up --build -d --wait --wait-timeout 120 server
+# 完成相同构建／导出／暂存后的直接 Docker 构建选项：
+docker build --build-arg WATT_FRONTEND_DIGEST -f deploy/server/Dockerfile -t watt-profile-server:local .
+```
+
+启动前选择未使用的可丢弃项目名及 `WATT_DEV_IMAGE_TAG`；独立部署的凭据／配置和启动步骤见 [Server 容器](../README_zh.md#server-容器)。构建执行锁定依赖安装、组件准备／校验、lint、类型检查、测试及打包。重新构建后再次导出／暂存。CI／发布使用生成方提供的可信摘要执行 `stage --expected`；不得从不可信制品中重新提取摘要来替换它。镜像构建缺少摘要时会失败并给出配置指引。已发布镜像的 `up --no-build` 无需本地制品／摘要。
+
 ## 本地验证与清理
 
 在独立 Python 3.12 虚拟环境安装开发锁定依赖，再将 Chromium 安装到新建的 `PLAYWRIGHT_BROWSERS_PATH`（`python -m playwright install --with-deps chromium`）。未激活虚拟环境时，设置 `WATT_CI_PYTHON` 指向其 Python，然后在仓库执行 `bash scripts/ci.sh`。需要可用的 Docker 和 Compose。数据库/浏览器服务只使用合成数据、随机名称和临时回环端口，并丢弃部署数据库 URL。脚本负责清理自己创建的临时目录和 Logger 项目/镜像；Server 与 PostgreSQL fixture 清理各自项目、卷和镜像。不接管已有资源，不进行全局 Docker prune。调用者在结束后清理自己另建的虚拟环境、浏览器目录和依赖缓存。

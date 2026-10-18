@@ -14,6 +14,7 @@ from uuid import uuid4
 
 import httpx
 import pytest
+from playwright.sync_api import expect, sync_playwright
 from test_server_ingest import batch
 
 from watt_profile.server.registration import RegistrationSummary
@@ -176,7 +177,7 @@ print(json.dumps({p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in roo
                 "-Atc",
                 "SELECT version_num FROM alembic_version",
             ).strip()
-            == "server_0001"
+            == "server_0002"
         )
         with httpx.Client(
             base_url=f"http://127.0.0.1:{port}", trust_env=False, timeout=20
@@ -205,6 +206,46 @@ print(json.dumps({p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in roo
                 return {
                     "X-CSRF-Token": re.search(r'name="csrf-token" content="([^"]+)"', page.text)[1]
                 }
+
+            # Exercise the actual installed image with Chromium and block public requests.
+            with sync_playwright() as playwright:
+                browser = playwright.chromium.launch(headless=True)
+                context = browser.new_context()
+                origin = f"http://127.0.0.1:{port}"
+                external, failures, assets = [], [], []
+
+                def route_request(route):
+                    if route.request.url.startswith(origin + "/"):
+                        route.continue_()
+                    else:
+                        external.append(route.request.url)
+                        route.abort()
+
+                context.route("**/*", route_request)
+                page = context.new_page()
+                page.on("pageerror", lambda error: failures.append(str(error)))
+                page.on(
+                    "response",
+                    lambda response: (
+                        assets.append(response) if "/assets/" in response.url else None
+                    ),
+                )
+                page.goto(origin + "/devices")
+                expect(page.get_by_label("Username")).to_be_visible()
+                page.get_by_label("Username").fill("admin")
+                page.get_by_label("Password").fill("testtesttesttest")
+                page.get_by_role("button", name="Log in", exact=True).click()
+                expect(page.locator(".workspace")).to_be_visible()
+                for route in ("/sites", "/devices", "/registration"):
+                    page.goto(origin + route)
+                    expect(page.locator(".workspace")).to_be_visible()
+                    page.reload()
+                    expect(page.locator(".workspace")).to_be_visible()
+                assert assets and all(response.status == 200 for response in assets)
+                assert any(".css" in response.url for response in assets)
+                assert not failures and not external
+                context.close()
+                browser.close()
 
             headers = login()
             summary = RegistrationSummary(
