@@ -31,6 +31,7 @@ AMSTERDAM = ZoneInfo("Europe/Amsterdam")
 MICROSECOND = timedelta(microseconds=1)
 
 if TYPE_CHECKING:
+    from watt_profile.server.analysis_phases import PhaseResult
     from watt_profile.server.analysis_power import PowerResult
     from watt_profile.server.analysis_quality import QualityResult
     from watt_profile.server.analysis_typical_day import TypicalDayResult
@@ -154,6 +155,11 @@ class AnalysisRead:
         from watt_profile.server.analysis_typical_day import calculate_typical_day
 
         return calculate_typical_day(self)
+
+    def phases(self, *, direction: str = "import", zoom=None) -> "PhaseResult":
+        from watt_profile.server.analysis_phases import calculate_phases
+
+        return calculate_phases(self, direction=direction, zoom=zoom)
 
 
 def session_statement(site_id):
