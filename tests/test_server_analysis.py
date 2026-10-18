@@ -1,6 +1,7 @@
 """M5-02 context and ranges, using synthetic isolated PostgreSQL data only."""
 
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal, localcontext
 from uuid import UUID, uuid4
 
 import pytest
@@ -82,13 +83,28 @@ def analysis_data(server_engine):
     repository = ServerRepository(server_engine)
     start = datetime(2026, 3, 1, tzinfo=UTC)
 
-    def add(*, session_id=None, started_at=start, times=(), ingested_at=None):
-        value = batch(summary, session_id=session_id, record_ids=[uuid4() for _ in times])
+    def add(
+        *,
+        session_id=None,
+        started_at=start,
+        times=(),
+        ingested_at=None,
+        metrics=None,
+        record_ids=None,
+    ):
+        value = batch(
+            summary, session_id=session_id, record_ids=record_ids or [uuid4() for _ in times]
+        )
         descriptor = value.session.model_copy(update={"started_at": started_at})
         records = [
             record.model_copy(update={"received_at": received, "sampled_at": received})
             for record, received in zip(value.records, times, strict=False)
         ]
+        if metrics is not None:
+            records = [
+                record.model_copy(update={"metrics": record.metrics.model_copy(update=values)})
+                for record, values in zip(records, metrics, strict=True)
+            ]
         with repository.transaction() as connection:
             repository.insert_descriptors(connection, descriptor, value.source)
             if records:
@@ -222,3 +238,229 @@ def test_read_only_and_errors_close_connection(analysis_data):
             raise RuntimeError("caller")
     assert read.connection.closed
     assert service.engine.pool.checkedout() == 0
+
+
+def counters(import_t1, import_t2, export_t1="0", export_t2="0"):
+    return {
+        name: None if value is None else Decimal(value)
+        for name, value in zip(
+            (
+                "energy_import_t1_kwh",
+                "energy_import_t2_kwh",
+                "energy_export_t1_kwh",
+                "energy_export_t2_kwh",
+            ),
+            (import_t1, import_t2, export_t1, export_t2),
+            strict=True,
+        )
+    }
+
+
+def energy_for(service, summary, descriptor, first, before):
+    with service.read(
+        summary.site_id,
+        descriptor.session_id,
+        {
+            "received_from": first,
+            "received_before": before,
+        },
+    ) as read:
+        return read.energy()
+
+
+def test_energy_partial_missing_gaps_and_independent_directions(analysis_data):
+    service, summary, _, add = analysis_data
+    base = datetime(2026, 3, 10, 12, tzinfo=UTC)
+    times = tuple(base + timedelta(seconds=n) for n in (0, 10, 20, 70, 80))
+    descriptor, _ = add(
+        times=times,
+        metrics=[
+            counters("100", "50", "10", "5"),
+            counters(None, "51", "11", "6"),
+            counters("102", "52", None, "7"),
+            counters("105", "55", "13", "8"),
+            counters("1000", "1000", "1000", "1000"),
+        ],
+    )
+    result = energy_for(service, summary, descriptor, base, times[-1])
+    imported, exported = result.import_energy, result.export_energy
+    assert imported.energy_kwh == Decimal("10")
+    assert exported.energy_kwh == Decimal("6")
+    for value in (imported, exported):
+        assert value.valid_endpoint_count == 3 and value.missing_endpoint_count == 1
+        assert value.valid_interval_count == 2 and value.bridged_gap_count == 1
+        assert value.reset_count == 0
+        assert value.first_endpoint_received_at == base
+        assert value.last_endpoint_received_at == times[3]
+        assert value.daily[0].date == date(2026, 3, 10)
+        assert value.daily[0].energy_kwh == value.energy_kwh
+        assert value.daily[0].valid_interval_count == 2
+        assert value.cross_day_unallocated_kwh == 0
+        assert set(value.incompleteness_reasons) == {"missing_tariffs", "sampling_gaps"}
+    assert result.model_dump(mode="json")["import_energy"]["energy_kwh"] == "10"
+    # Never borrow the endpoint just before the requested range.
+    narrowed = energy_for(service, summary, descriptor, times[2], times[-1])
+    assert narrowed.import_energy.energy_kwh == Decimal("6")
+    assert narrowed.export_energy.energy_kwh is None
+
+
+def test_energy_tariff_regression_even_when_total_increases(analysis_data):
+    service, summary, _, add = analysis_data
+    base = datetime(2026, 3, 10, 12, tzinfo=UTC)
+    times = tuple(base + timedelta(seconds=10 * n) for n in range(4))
+    descriptor, _ = add(
+        times=times,
+        metrics=[
+            counters("10", "10", "5", "5"),
+            counters("9", "30", "6", "6"),  # combined total rises, T1 regresses
+            counters("11", "31", "7", "7"),
+            counters("12", "30", "8", "8"),  # T2 regression also excluded
+        ],
+    )
+    result = energy_for(service, summary, descriptor, base, times[-1] + timedelta(seconds=1))
+    assert result.import_energy.energy_kwh == 3
+    assert result.import_energy.reset_count == 2
+    assert result.import_energy.valid_interval_count == 1
+    assert result.import_energy.daily[0].first_endpoint_received_at == times[1]
+    assert "counter_regressions" in result.import_energy.incompleteness_reasons
+    assert result.export_energy.energy_kwh == 6
+    assert result.export_energy.reset_count == 0
+
+
+@pytest.mark.parametrize("count", [0, 1, 2])
+def test_energy_insufficient_endpoints_and_zero(analysis_data, count):
+    service, summary, _, add = analysis_data
+    base = datetime(2026, 3, 10, 12, tzinfo=UTC)
+    descriptor, _ = add(
+        times=[base + timedelta(seconds=10 * n) for n in range(count)],
+        metrics=[counters("0", "0", None, "0") for _ in range(count)],
+    )
+    result = energy_for(service, summary, descriptor, base, base + timedelta(seconds=21))
+    imported, exported = result.import_energy, result.export_energy
+    assert imported.energy_kwh == (Decimal(0) if count == 2 else None)
+    assert imported.cross_day_unallocated_kwh == (Decimal(0) if count == 2 else None)
+    assert exported.energy_kwh is None and exported.daily == ()
+    assert "insufficient_endpoints" in exported.incompleteness_reasons
+    assert exported.missing_endpoint_count == count
+    if count < 2:
+        assert imported.daily == ()
+        assert "insufficient_endpoints" in imported.incompleteness_reasons
+
+
+def test_energy_large_exact_values_without_python_context_rounding(analysis_data):
+    service, summary, _, add = analysis_data
+    base = datetime(2026, 3, 10, 12, tzinfo=UTC)
+    descriptor, _ = add(
+        times=[base, base + timedelta(seconds=10), base + timedelta(seconds=20)],
+        metrics=[
+            counters("10000000000000000000000000000000000000000.00000000001", "0"),
+            counters(
+                "10000000000000000000000000000000000000000.00000000002",
+                "123456789012345678901234567890.12345678901",
+            ),
+            counters(
+                "10000000000000000000000000000000000000000.00000000003",
+                "123456789012345678901234567890.12345678902",
+            ),
+        ],
+    )
+    with localcontext() as context:
+        context.prec = 6
+        result = energy_for(service, summary, descriptor, base, base + timedelta(seconds=21))
+    expected = Decimal("123456789012345678901234567890.12345678904")
+    assert result.import_energy.energy_kwh == expected
+    assert result.import_energy.daily[0].energy_kwh == expected
+    assert result.model_dump(mode="json")["import_energy"]["energy_kwh"] == str(expected)
+
+
+@pytest.mark.parametrize("day", [date(2026, 3, 29), date(2026, 10, 25)])
+def test_energy_midnight_dst_and_cross_day_identity(analysis_data, day):
+    from watt_profile.server.analysis import AMSTERDAM
+
+    service, summary, _, add = analysis_data
+    midnight = datetime.combine(day, datetime.min.time(), AMSTERDAM).astimezone(UTC)
+    next_midnight = datetime.combine(
+        day + timedelta(days=1),
+        datetime.min.time(),
+        AMSTERDAM,
+    ).astimezone(UTC)
+    times = [
+        midnight,
+        next_midnight - timedelta(seconds=10),
+        next_midnight,
+        next_midnight + timedelta(hours=12),
+        next_midnight + timedelta(days=1, seconds=1),
+    ]
+    descriptor, _ = add(
+        times=times,
+        metrics=[
+            counters("0", "0", "10", "0"),
+            counters("1", "1", "11", "0"),
+            counters("2", "2", "12", "0"),
+            counters("3", "3", "13", "0"),
+            counters("4", "4", "14", "0"),
+        ],
+    )
+    result = energy_for(service, summary, descriptor, midnight, times[-1] + timedelta(seconds=1))
+    for value, total, daily, unallocated in (
+        (result.import_energy, "8", ["4", "2"], "2"),
+        (result.export_energy, "4", ["2", "1"], "1"),
+    ):
+        assert value.energy_kwh == Decimal(total)
+        assert [row.date for row in value.daily] == [day, day + timedelta(days=1)]
+        assert [row.energy_kwh for row in value.daily] == list(map(Decimal, daily))
+        assert value.daily[0].last_endpoint_received_at == next_midnight
+        assert value.cross_day_unallocated_kwh == Decimal(unallocated)
+        assert (
+            sum(row.energy_kwh for row in value.daily) + value.cross_day_unallocated_kwh
+            == value.energy_kwh
+        )
+        assert "cross_day_unallocated" in value.incompleteness_reasons
+
+
+def test_energy_missing_tariffs_over_dense_readings_are_not_sampling_gaps(analysis_data):
+    service, summary, _, add = analysis_data
+    base = datetime(2026, 3, 10, 12, tzinfo=UTC)
+    descriptor, _ = add(
+        times=[base + timedelta(seconds=10 * n) for n in range(6)],
+        metrics=[counters("0", "0")]
+        + [counters(None, "1") for _ in range(4)]
+        + [counters("2", "3")],
+    )
+    result = energy_for(service, summary, descriptor, base, base + timedelta(seconds=51))
+    assert result.import_energy.energy_kwh == 5
+    assert result.import_energy.bridged_gap_count == 0
+    assert result.import_energy.incompleteness_reasons == ("missing_tariffs",)
+
+
+def test_energy_tied_times_follow_record_order_not_insertion(analysis_data):
+    service, summary, _, add = analysis_data
+    base = datetime(2026, 3, 10, 12, tzinfo=UTC)
+    descriptor, _ = add(
+        times=[base, base, base + timedelta(seconds=10)],
+        record_ids=[
+            UUID("ffffffff-ffff-4fff-bfff-ffffffffffff"),
+            UUID("00000000-0000-4000-8000-000000000001"),
+            uuid4(),
+        ],
+        metrics=[counters("100", "0"), counters("0", "0"), counters("101", "0")],
+    )
+    result = energy_for(service, summary, descriptor, base, base + timedelta(seconds=11))
+    assert result.import_energy.energy_kwh == 101
+    assert result.import_energy.valid_interval_count == 2
+    assert result.import_energy.reset_count == 0
+
+
+def test_energy_only_regressions_are_unavailable(analysis_data):
+    service, summary, _, add = analysis_data
+    base = datetime(2026, 3, 10, 12, tzinfo=UTC)
+    descriptor, _ = add(
+        times=[base, base + timedelta(seconds=10)],
+        metrics=[counters("10", "10"), counters("0", "0")],
+    )
+    result = energy_for(service, summary, descriptor, base, base + timedelta(seconds=11))
+    assert result.import_energy.energy_kwh is None
+    assert result.import_energy.cross_day_unallocated_kwh is None
+    assert result.import_energy.valid_endpoint_count == 2
+    assert result.import_energy.reset_count == 1
+    assert "no_valid_intervals" in result.import_energy.incompleteness_reasons
