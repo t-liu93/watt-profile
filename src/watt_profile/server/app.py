@@ -30,6 +30,7 @@ from watt_profile.server.analysis_api import AnalysisAPI
 from watt_profile.server.auth import COOKIE, LOGIN_COOKIE, MAX_AGE, AdministratorAuth
 from watt_profile.server.bootstrap import initialize_storage
 from watt_profile.server.export import ExportManager
+from watt_profile.server.frontend import asset_directory, entry_assets, unavailable
 from watt_profile.server.ingest import IngestService
 from watt_profile.server.queries import (
     InvalidQuery,
@@ -257,6 +258,8 @@ def create_app(settings: ServerSettings | None = None):
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
     app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
+    frontend_directory = asset_directory()
+    app.mount("/assets", StaticFiles(directory=frontend_directory, check_dir=False), name="assets")
     app.state.settings, app.state.ready = settings, False
     app.add_middleware(Boundary, settings=lambda: app.state.settings)
 
@@ -359,12 +362,27 @@ def create_app(settings: ServerSettings | None = None):
                 pass
         return JSONResponse(healthy, status_code=200 if healthy else 503)
 
+    def frontend_page(request, csrf, *, login=False):
+        try:
+            entry, styles, imports = entry_assets(frontend_directory)
+        except (OSError, ValueError, KeyError, TypeError):
+            return unavailable()
+        return templates.TemplateResponse(
+            request=request,
+            name="app.html",
+            context={
+                "csrf": csrf,
+                "login": login,
+                "entry": entry,
+                "styles": styles,
+                "imports": imports,
+            },
+        )
+
     @app.get("/login")
     async def login_form(request: Request):
         identifier, state = app.state.auth.login_state()
-        response = templates.TemplateResponse(
-            request=request, name="login.html", context={"csrf": state.csrf}
-        )
+        response = frontend_page(request, state.csrf, login=True)
         cookie(response, LOGIN_COOKIE, identifier, 15 * 60)
         return response
 
@@ -425,6 +443,9 @@ def create_app(settings: ServerSettings | None = None):
         return response
 
     @app.get("/")
+    @app.get("/sites")
+    @app.get("/devices")
+    @app.get("/registration")
     @app.get("/sites/{site_id}")
     @app.get("/devices/{device_id}")
     async def administrator_page(request: Request):
@@ -437,16 +458,7 @@ def create_app(settings: ServerSettings | None = None):
         object_id = next(iter(request.path_params.values()), "")
         if object_id:
             query_id(object_id)
-        page = (
-            "site"
-            if "site_id" in request.path_params
-            else ("device" if "device_id" in request.path_params else "dashboard")
-        )
-        return templates.TemplateResponse(
-            request=request,
-            name="base.html",
-            context={"csrf": state.csrf, "page": page, "object_id": object_id},
-        )
+        return frontend_page(request, state.csrf)
 
     async def management(request: Request):
         mutation = request.method not in {"GET", "HEAD"}

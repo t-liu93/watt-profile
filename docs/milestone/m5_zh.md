@@ -394,6 +394,8 @@ Python 使用现有 Ruff／pytest 和隔离 PostgreSQL 设施。为 `scripts/ci.
 
 - **M5-08 — 自动实现已通过：** 工作台／分析／最新读数接口、概览共享快照、沿用认证与安全错误、外派前非等待双名额准入与取消安全的工作线程所有权。独立审查：102项 API／auth／ingest／query／CSV PostgreSQL 测试及 Ruff lint／format、diff通过；实现回归另覆盖全部分析服务（150项通过）。
 
+- **M5-09 — 自动实现已通过：** 锁定前端基础与完整 Radix 资源图。独立审查通过固定CLI重建完全相同的候选，完成两次干净安装／还原、失败场景、lint／typecheck／build和真实Chromium键盘检查；npm使用提供的缓存，registry使用在线不可变来源。所有者走查／冻结仍待确认。
+
 ### 验收记录
 
 | 项目 | 2026-10-18 状态 | 证据 |
