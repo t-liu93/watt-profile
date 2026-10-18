@@ -6,7 +6,7 @@
 
 ## LOGGER-001 — 独立试读可能使 Logger 卡在 `previewing`
 
-- **状态：** 2026-10-15 已在 [M4-01–M4-02](milestone/m4_zh.md#任务执行证据) 完成代码验证，并在上传器工作前集成到 `main`。业主实机验证及另行授权的新版本发布仍待完成。已发布 `v0.1.0-alpha.1` 镜像未变，仍受影响。
+- **状态：** 2026-10-15 已在 [M4-01–M4-02](milestone/m4_zh.md#任务执行证据) 完成代码验证，并在上传器工作前集成到 `main`。已于 2026-10-16 在 [v0.1.0-alpha.2](https://github.com/t-liu93/watt-profile/releases/tag/v0.1.0-alpha.2) 发布；业主实机验证仍待完成。已发布 `v0.1.0-alpha.1` 镜像未变，仍受影响。
 - **受影响版本：** `v0.1.0-alpha.1`，Logger 镜像 `ghcr.io/t-liu93/watt-profile-logger:0.1.0-alpha.1`。
 - **现场环境：** 所有者自行操作的树莓派，连接真实 USB/P1 设备。独立诊断工具已成功读到有效数据。开发代理未访问生产设备或数据。
 - **影响：** 预览后本地配置可能不可用，创建现场、部署等修改按钮持续禁用。此问题与 M4 前尚未实现上传的预期行为无关。
@@ -48,4 +48,4 @@ docker compose --env-file .env -p watt-logger -f compose.yml restart logger
 
 ### 代码验证，2026-10-15
 
-已实现 reader 独占关闭与 preview 保证清理；真实 close/join 失败仍明确显示并禁止不安全复用。Runtime/lifecycle/probe/maintenance：120 passed；API/runtime/synthetic：58 passed；隔离浏览器：7 passed；一次性 Logger Compose/persistence：1 passed。两项任务 diff 均通过全新独立评审。仅使用合成串口和临时资源，临时项目已清理。业主暂停后预览恢复、真实驱动行为及新镜像发布仍待完成；已有临时恢复方式仍适用于受影响版本。
+已实现 reader 独占关闭与 preview 保证清理；真实 close/join 失败仍明确显示并禁止不安全复用。Runtime/lifecycle/probe/maintenance：120 passed；API/runtime/synthetic：58 passed；隔离浏览器：7 passed；一次性 Logger Compose/persistence：1 passed。两项任务 diff 均通过全新独立评审。仅使用合成串口和临时资源，临时项目已清理。修复已在 alpha.2 发布；所有者暂停后预览恢复及真实驱动行为仍待验证。已有临时恢复方式仍适用于受影响的 alpha.1 版本。

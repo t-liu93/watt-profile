@@ -4,6 +4,8 @@
 
 This delivery step sits between accepted [M3](milestone/m3.md) and [M4](milestone/m4.md). It adds GitHub Actions checks and GHCR delivery for the Logger and Server. Current M4 source includes upload, four-week capacity measurement and recovery checks; `scripts/ci.sh` explicitly runs the capacity selector. The already published `v0.1.0-alpha.1` Logger remains a pre-M4 image without an uploader; a changed image needs a separately authorized new release. No host, Raspberry Pi, Nginx or production service is deployed or configured by these workflows. See the [M4 capacity and owner upgrade procedure](milestone/m4.md#owner-pi-upgrade-and-acceptance-handoff).
 
+`v0.1.0-alpha.2` was [published on 2026-10-16](https://github.com/t-liu93/watt-profile/releases/tag/v0.1.0-alpha.2) with M4 upload/recovery and the LOGGER-001 repair. Logger and Server each provide native-tested AMD64/ARM64 images at `:0.1.0-alpha.2`; alpha.1 is unchanged and this prerelease does not set `latest`. Full release CI and native tests passed. The separate main CI test race, the committed test-only correction `e5127d4` and its successful [main CI](https://github.com/t-liu93/watt-profile/actions/runs/38973592828) are recorded in [M4](milestone/m4.md#owner-walkthrough-and-release-preflight-2026-10-16); owner Pi/backlog/72-hour acceptance remains pending.
+
 ## Checks and release contract
 
 1. Every branch push, non-version tag push, pull request and manual CI dispatch runs `CI`. A `v*` tag instead starts `Release images`, which calls the same complete CI against the resolved tag commit before building any release image. Invalid version tags fail validation.
@@ -39,7 +41,7 @@ Use a new version for changed source. GitHub repository settings must permit Act
 Use Raspberry Pi OS **64-bit** and Docker Compose v2 or newer. `uname -m` should report `aarch64`; Docker selects ARM64 from the manifest automatically. The Pi needs the repository's Compose file and environment configuration, but does not need Python or a local image build.
 
 1. Copy `deploy/logger/.env.example` to ignored `deploy/logger/.env.local`. Set the operator name, absolute private password-file path, stable `/dev/serial/by-id/...` device, its **numeric host group ID**, reachable bind address and published port. The password is 16–256 characters, file mode 0600 owned by UID/GID 10001; its parent directory is private (0700). These are owner-managed host settings; see [M2 operating instructions](milestone/m2.md#container-operations-m2-09).
-2. Add an actual published version, for example `WATT_LOGGER_IMAGE=ghcr.io/t-liu93/watt-profile-logger:0.1.0`. Leave this variable unset when building locally. The initializer and Logger use the same selected image. For direct LAN HTTP choose an appropriate Pi interface/port and keep `WATT_LOGGER_COOKIE_SECURE=false`; HTTPS is managed outside the container.
+2. Add an actual published version, for example `WATT_LOGGER_IMAGE=ghcr.io/t-liu93/watt-profile-logger:0.1.0-alpha.2`. Leave this variable unset when building locally. The initializer and Logger use the same selected image. For direct LAN HTTP choose an appropriate Pi interface/port and keep `WATT_LOGGER_COOKIE_SECURE=false`; HTTPS is managed outside the container.
 3. From the repository root, validate and start only Logger and its initializer:
 
 ```sh
@@ -48,7 +50,7 @@ docker compose --env-file deploy/logger/.env.local -p watt-logger -f deploy/logg
 docker compose --env-file deploy/logger/.env.local -p watt-logger -f deploy/logger/compose.yml ps --all
 ```
 
-Open `http://PI_ADDRESS:CONFIGURED_PORT`, log in and create a site, use read preview, then create a paused deployment and start collection. A preview alone stores no readings. Collected snapshots survive restart/recreation in the named volume. The published alpha.1 image does not upload; current M4 source does. Physical P1 compatibility, storage allocation and Pi resource use still require the owner walkthrough. Before installing a future authorized M4 image, follow the [online backup, copy-out, upgrade and rollback steps](milestone/m4.md#owner-pi-upgrade-and-acceptance-handoff); preserve the Compose project and volume.
+Open `http://PI_ADDRESS:CONFIGURED_PORT`, log in and create a site, use read preview, then create a paused deployment and start collection. A preview alone stores no readings. Collected snapshots survive restart/recreation in the named volume. The published alpha.2 image includes upload and the preview repair; alpha.1 does not upload. Physical P1 compatibility, storage allocation and Pi resource use still require the owner walkthrough. Before upgrading to alpha.2, follow the [online backup, copy-out, upgrade and rollback steps](milestone/m4.md#owner-pi-upgrade-and-acceptance-handoff); preserve the Compose project and volume.
 
 Normal shutdown preserves the database, identity and Token:
 

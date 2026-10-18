@@ -4,6 +4,8 @@
 
 本交付步骤位于已验收的 [M3](milestone/m3_zh.md) 与 [M4](milestone/m4_zh.md) 之间，为 Logger、Server 增加 GitHub Actions 检查和 GHCR 交付。当前 M4 源码含上传、四周容量测量和恢复检查；`scripts/ci.sh` 会显式运行容量 selector。已发布的 `v0.1.0-alpha.1` Logger 仍是 M4 前镜像，不含上传器；变更镜像须另行授权发布新版本。工作流不部署或配置宿主机、树莓派、Nginx 或生产服务。详见 [M4 容量及所有者升级流程](milestone/m4_zh.md#所有者-pi-升级与验收交接)。
 
+`v0.1.0-alpha.2` 已于 [2026-10-16 发布](https://github.com/t-liu93/watt-profile/releases/tag/v0.1.0-alpha.2)，含 M4 上传／恢复及 LOGGER-001 修复。Logger、Server 均提供原生测试通过的 AMD64／ARM64 镜像 `:0.1.0-alpha.2`；alpha.1 未变，此预发布不设置 `latest`。发布完整 CI 和原生测试通过。独立 main CI 的测试竞争、已提交的仅测试修正 `e5127d4` 及其成功的 [main CI](https://github.com/t-liu93/watt-profile/actions/runs/38973592828) 见 [M4](milestone/m4_zh.md#所有者走查与发版前检查2026-10-16)；所有者 Pi／积压／72 小时验收仍待完成。
+
 ## 检查与发布契约
 
 1. 每次分支 push、非版本 tag push、pull request 以及手动触发都会运行 `CI`。`v*` tag 则触发 `Release images`，在构建任何发布镜像前，对解析后的 tag 提交调用同一套完整 CI。版本 tag 不合法时验证失败。
@@ -39,7 +41,7 @@ git push origin v0.1.0
 使用树莓派 OS **64 位**，以及 Docker Compose v2 或更新版本。`uname -m` 应返回 `aarch64`；Docker 根据 manifest 自动选择 ARM64。树莓派需要仓库中的 Compose 文件和环境配置，无需安装 Python 或在本地构建镜像。
 
 1. 将 `deploy/logger/.env.example` 复制为被忽略的 `deploy/logger/.env.local`，填写操作员名称、私有密码文件绝对路径、稳定的 `/dev/serial/by-id/...` 设备、其**宿主机数字组 ID**、可达的绑定地址和对外端口。密码为 16–256 字符，文件权限 0600、UID/GID 为 10001，父目录权限 0700。这些由所有者配置，详见 [M2 操作说明](milestone/m2_zh.md#容器操作m2-09)。
-2. 添加实际发布过的版本，例如 `WATT_LOGGER_IMAGE=ghcr.io/t-liu93/watt-profile-logger:0.1.0`。本地构建时不设置此变量。初始化器和 Logger 使用相同的所选镜像。局域网直接 HTTP 访问时选择树莓派合适的接口/端口，保留 `WATT_LOGGER_COOKIE_SECURE=false`；HTTPS 在容器外管理。
+2. 添加实际发布过的版本，例如 `WATT_LOGGER_IMAGE=ghcr.io/t-liu93/watt-profile-logger:0.1.0-alpha.2`。本地构建时不设置此变量。初始化器和 Logger 使用相同的所选镜像。局域网直接 HTTP 访问时选择树莓派合适的接口/端口，保留 `WATT_LOGGER_COOKIE_SECURE=false`；HTTPS 在容器外管理。
 3. 在仓库根目录验证配置，只启动 Logger 及其初始化器：
 
 ```sh
@@ -48,7 +50,7 @@ docker compose --env-file deploy/logger/.env.local -p watt-logger -f deploy/logg
 docker compose --env-file deploy/logger/.env.local -p watt-logger -f deploy/logger/compose.yml ps --all
 ```
 
-打开 `http://树莓派地址:配置端口`，登录并创建现场、进行读数预览，然后创建暂停状态的部署并启动采集。单纯预览不会存储读数。采集快照保存在命名卷，重启／重建后仍在。已发布的 alpha.1 镜像不会上传；当前 M4 源码支持上传。真实 P1 适配、存储分配及树莓派资源使用仍需所有者实机走查。安装未来另行授权的 M4 镜像前，遵循 [在线备份、复制到宿主机、升级和回滚步骤](milestone/m4_zh.md#所有者-pi-升级与验收交接)，保留原 Compose project 和数据卷。
+打开 `http://树莓派地址:配置端口`，登录并创建现场、进行读数预览，然后创建暂停状态的部署并启动采集。单纯预览不会存储读数。采集快照保存在命名卷，重启／重建后仍在。已发布的 alpha.2 镜像含上传和预览修复；alpha.1 不会上传。真实 P1 适配、存储分配及树莓派资源使用仍需所有者实机走查。升级到 alpha.2 前，遵循 [在线备份、复制到宿主机、升级和回滚步骤](milestone/m4_zh.md#所有者-pi-升级与验收交接)，保留原 Compose project 和数据卷。
 
 普通停止会保留数据库、身份及 Token：
 

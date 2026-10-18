@@ -6,7 +6,7 @@ This tracked register records unresolved defects found during deployment and own
 
 ## LOGGER-001 — Standalone preview can leave the Logger stuck in `previewing`
 
-- **Status:** Code-verified on 2026-10-15 in [M4-01–M4-02](milestone/m4.md#task-execution-evidence); integrated into `main` before uploader work. Owner hardware verification and a separately authorized new release remain pending. The published `v0.1.0-alpha.1` image is unchanged and still affected.
+- **Status:** Code-verified on 2026-10-15 in [M4-01–M4-02](milestone/m4.md#task-execution-evidence); integrated into `main` before uploader work. Published in [v0.1.0-alpha.2](https://github.com/t-liu93/watt-profile/releases/tag/v0.1.0-alpha.2) on 2026-10-16; owner hardware verification remains pending. The published `v0.1.0-alpha.1` image is unchanged and still affected.
 - **Affected release:** `v0.1.0-alpha.1`, Logger image `ghcr.io/t-liu93/watt-profile-logger:0.1.0-alpha.1`.
 - **Observed environment:** Owner-operated Raspberry Pi with a real USB/P1 connection. The standalone diagnostic probe successfully read valid data. No production device or data was accessed by the development agent.
 - **Impact:** Local setup can become unusable after preview: creating sites, creating deployments and other mutation controls remain disabled. This is separate from the expected absence of upload functionality before M4.
@@ -48,4 +48,4 @@ Refresh the page and log in again. This preserves the named data volume, saved s
 
 ### Code verification, 2026-10-15
 
-Reader-only close ownership and guaranteed preview teardown are implemented; real close/join failures remain explicit and prevent unsafe reuse. Runtime/lifecycle/probe/maintenance: 120 passed; API/runtime/synthetic: 58 passed; isolated browser: 7 passed; disposable Logger Compose/persistence: 1 passed. Both task diffs passed fresh independent reviews. Only synthetic serial and temporary resources were used, and the disposable project was removed. Owner paused-preview recovery, real driver behavior and a new published image are pending; the existing workaround still applies to the affected release.
+Reader-only close ownership and guaranteed preview teardown are implemented; real close/join failures remain explicit and prevent unsafe reuse. Runtime/lifecycle/probe/maintenance: 120 passed; API/runtime/synthetic: 58 passed; isolated browser: 7 passed; disposable Logger Compose/persistence: 1 passed. Both task diffs passed fresh independent reviews. Only synthetic serial and temporary resources were used, and the disposable project was removed. The repair is published in alpha.2; owner paused-preview recovery and real driver behavior remain pending. The existing workaround still applies to the affected alpha.1 release.
