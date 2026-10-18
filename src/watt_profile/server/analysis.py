@@ -9,7 +9,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
-from typing import Literal, Self
+from typing import TYPE_CHECKING, Literal, Self
 from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError, model_validator
@@ -29,6 +29,9 @@ from watt_profile.server.storage import schema as db
 
 AMSTERDAM = ZoneInfo("Europe/Amsterdam")
 MICROSECOND = timedelta(microseconds=1)
+
+if TYPE_CHECKING:
+    from watt_profile.server.analysis_power import PowerResult
 
 
 class InvalidAnalysis(ValueError):
@@ -134,6 +137,11 @@ class AnalysisRead:
 
     def energy(self) -> "EnergyResult":
         return calculate_energy(self)
+
+    def power(self, *, zoom: AnalysisRange | dict | None = None) -> "PowerResult":
+        from watt_profile.server.analysis_power import calculate_power
+
+        return calculate_power(self, zoom=zoom)
 
 
 def session_statement(site_id):

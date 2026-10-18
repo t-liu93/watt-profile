@@ -345,6 +345,8 @@ Python 使用现有 Ruff／pytest 和隔离 PostgreSQL 设施。为 `scripts/ci.
 
 - **M5-02 — 自动实现已通过：** session 选择／分页、明确空状态、Amsterdam 区间／DST／31 日期限制与只读 REPEATABLE READ 事务。独立审查：15 项隔离 PostgreSQL 测试及 Ruff lint／format、diff 检查通过。
 
+- **M5-03 — 自动实现已通过：** SQL 累计／每日电量、tariff 回退处理、真实采样缺口区分及跨日未分配量。独立审查：26 项 PostgreSQL 测试、35 组合成随机数据的双方向独立计算比对，以及 Ruff lint／format、diff 检查通过。
+
 ### 验收记录
 
 | 项目 | 2026-10-18 状态 | 证据 |
