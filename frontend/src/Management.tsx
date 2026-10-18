@@ -3,7 +3,7 @@ import type { ComponentProps, FormEvent, ReactNode } from 'react';
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { Button, ConfirmationDialog } from './components/ui';
 import { resources } from './i18n';
-import { SiteOverview } from './Analysis';
+import { SiteAnalysis } from './Analysis';
 import type { Language } from './i18n';
 import { managementResources } from './management-i18n';
 import { APIClient, RequestOwner } from './lib/api';
@@ -191,7 +191,7 @@ function SiteSettings({ client, language, id }: Props & {
     <nav className="site-tabs" aria-label={resources[language].site}>{(['overview', 'usage', 'phases', 'quality', 'raw', 'settings'] as const).map(key => <Link key={key} className={tab === key ? 'active' : ''} to={(() => { const next = new URLSearchParams(params); next.set('tab', key); return '?' + next; })()} onClick={() => { setConfirmation(null); }}>{t[key]}</Link>)}</nav>
     <Feedback m={m} language={language}/>
     <div hidden={tab !== 'settings'}><StatusRefresh status={status} language={language}/>
-    <Button id="reload" onClick={() => { if (!m.isBusy()) void load(); }}>{t.reload}</Button></div>{!result && !m.error && !status.error && <p role="status">{t.loading}</p>}{tab === 'overview' ? <SiteOverview client={client} language={language} id={id}/> : tab !== 'settings' ? <Panel title={t[tab as 'overview'] ?? t.overview}>
+    <Button id="reload" onClick={() => { if (!m.isBusy()) void load(); }}>{t.reload}</Button></div>{!result && !m.error && !status.error && <p role="status">{t.loading}</p>}{tab === 'overview' || tab === 'usage' ? <SiteAnalysis client={client} language={language} id={id} tab={tab}/> : tab !== 'settings' ? <Panel title={t[tab as 'overview'] ?? t.overview}>
         <p>{t.upcoming}</p>
         </Panel> : result && <>
         <Panel title={t.settings}>
