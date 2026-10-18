@@ -6,9 +6,9 @@ Watt Profile P1 协议和数据契约的独立 Python 包。
 
 ## CI 与发布镜像
 
-每次 push 执行合成数据 CI，其中包括显式运行的四周容量 selector。版本 tag 在检查和原生镜像测试通过后，将独立的 Logger、Server AMD64/ARM64 镜像发布到 GHCR。参阅 [CI、发布标签与树莓派拉取说明](docs/ci-and-release_zh.md)。[已发布的 `v0.1.0-alpha.2`](https://github.com/t-liu93/watt-profile/releases/tag/v0.1.0-alpha.2) 含 M4 上传／积压恢复及 LOGGER-001 修复；未改动的 `v0.1.0-alpha.1` 镜像仍为 M4 前版本。
+每次 push 执行合成数据 CI，包含显式四周容量 selector。版本 tag 在检查和原生镜像测试通过后，将独立 Logger、Server 的 AMD64／ARM64 镜像发布到 GHCR。参阅 [CI 与发布说明](docs/ci-and-release_zh.md)。[已发布的 `v0.1.0-alpha.3`](https://github.com/t-liu93/watt-profile/releases/tag/v0.1.0-alpha.3) 修复 Logger 积压组批性能；alpha.2 引入 M4 上传／恢复及 LOGGER-001 修复。alpha.1 保持未变，仍为 M4 前版本。
 
-[M4 设计及所有者操作交接](docs/milestone/m4_zh.md)记录十个顺序任务，涵盖 LOGGER-001 修复、可靠上传／补传、四周容量、集成验证及所有者 ARM64 Pi 4 连续 72 小时验收。M4-01–M4-10 软件实现、检查和独立评审已完成。完整 CI 和隔离浏览器走查通过；2026-10-16 已完成引导式所有者走查，并记录人工核对范围限制。存储配额及 Pi 4 实物／72 小时验收仍待完成。所有者授权的 `v0.1.0-alpha.2` 试点预发布已发布；仅测试同步修正已提交为 `e5127d4`，main CI 通过。2026-10-18 所有者确认 Server 部署、HTTPS／登录及手动本地／远端备份通过。修订硬件边界见 [MVP 路线图](docs/mvp-roadmap_zh.md)。
+**所有者于 2026-10-18 验收 M4，MVP 已完成。** 所有者验证 Server 部署、HTTPS／登录及手动本地／远端备份，保留既有数据将 ARM64 Pi Logger 升级至 alpha.3，并确认真实积压清零。随后采集与上传并行运行：新 pending 记录被确认，上传器回到 idle，未再报告错误。详见 [M4 最终验收及证据限制](docs/milestone/m4_zh.md#所有者最终验收与-mvp-结项2026-10-18)和 [MVP 路线图](docs/mvp-roadmap_zh.md)。后续在新 session 开始 Server 数据展示及额外功能工作。
 
 ## 开发环境
 

@@ -6,7 +6,7 @@ This tracked register records unresolved defects found during deployment and own
 
 ## LOGGER-002 — Backlog batch construction repeats work quadratically
 
-- **Status:** Code-verified on 2026-10-18 under [M4-11](milestone/m4.md#m4-11--linear-time-pending-batch-construction); alpha.3 publication and physical throughput verification remain pending.
+- **Status:** Resolved and published in [alpha.3](https://github.com/t-liu93/watt-profile/releases/tag/v0.1.0-alpha.3), 2026-10-18. [M4-11](milestone/m4.md#m4-11--linear-time-pending-batch-construction) passed local and complete cloud checks. The owner confirmed rapid real-backlog upload, pending reaching zero and continued new-reading delivery on the Pi.
 - **Affected release:** Logger `v0.1.0-alpha.2`.
 - **Impact and evidence:** Each added record rebuilds, validates and serializes every growing batch prefix. A deterministic synthetic regression counts 40,200 canonical record validations for a 200-record selection. Successful batches already schedule the next immediately; changing the idle scan interval does not remove this CPU bottleneck.
 - **Repair branch:** `codex/logger-backlog-performance`. Account for exact encoded bytes incrementally and construct the final validated batch once. Preserve canonical content, bounds, ordering, corruption rejection and atomic acknowledgement; no database migration is needed.
@@ -14,11 +14,11 @@ This tracked register records unresolved defects found during deployment and own
 
 ## LOGGER-003 — Owner collection errors during real backlog upload need diagnosis
 
-- **Status:** Open; not repaired by LOGGER-002.
+- **Status:** Monitoring follow-up; not reproduced in the owner-observed alpha.3 concurrent collection/upload run, which reached zero backlog and then repeatedly confirmed new readings. The owner accepted M4/MVP on 2026-10-18. Root cause remains unconfirmed; LOGGER-002 is not a proven collection-error repair.
 - **Observed release:** Owner-upgraded ARM64 Pi Logger `v0.1.0-alpha.2`; the owner confirmed existing data survived and reported successful old-record uploads, then stopped collection while draining backlog.
 - **Observed behavior:** Collection reported `storage_full` / `storage_error` despite approximately 24.7 GB available; subsequent resume attempts reportedly showed `snapshot_invalid` / `no_valid_reading`. Upload confirmations continued after the last saved collection reception.
 - **Evidence limits:** Runtime maps non-corruption storage failures broadly to `storage_full`; SQLite lock waits are limited to five seconds. Slow storage or write contention is a hypothesis, not an established cause. `snapshot_invalid` covers rejected frames/readings and snapshot validation; `no_valid_reading` means no reading was admitted for at least 15 seconds. Neither proves cable failure. No private exception, raw telegram or physical diagnostic has been captured by the agent.
-- **Next acceptance:** Verify backlog throughput after LOGGER-002, then separately diagnose collection using owner-operated status/serial observations. Do not delete pending records, change identity or claim hardware/72-hour acceptance to bypass these errors.
+- **Follow-up:** Backlog throughput and concurrent operation passed according to owner feedback. If the error recurs, preserve safe error/status timestamps and diagnose it separately; do not infer SD-card/cable failure or a measured 72-hour pass. This observation does not block the owner's MVP closure.
 
 ## LOGGER-001 — Standalone preview can leave the Logger stuck in `previewing`
 
