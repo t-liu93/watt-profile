@@ -2,7 +2,7 @@
 
 > **English — source of truth** · [中文](post-mvp-roadmap_zh.md)
 
-Status, 2026-10-18: **The MVP is accepted and complete; Post-MVP implementation has not started.** This high-level direction is agreed. Detailed M5 design and task cards are the next planning step.
+Status, 2026-10-18: **The MVP is accepted and complete; Post-MVP implementation has not started.** This high-level direction is agreed. The [M5 design and atomic task cards](milestone/m5.md) are agreed and recorded; implementation and acceptance remain pending.
 
 This is the ongoing roadmap for development after the MVP. It records product direction, stage goals, priorities, dependencies, and changes to scope. Detailed designs, interface contracts, atomic tasks, and acceptance records remain in each milestone's English document and Chinese mirror under `docs/milestone/`.
 
@@ -52,7 +52,7 @@ M5 retains the existing Logger upload contract.
 
 An internal user can open a site, inspect several weeks of data, identify major import/export patterns and gaps, examine phase metrics, and verify results against raw readings. Existing administration and export workflows remain usable.
 
-Verify statistical correctness, query and chart responsiveness with four weeks of synthetic data, both interface languages, container delivery, and regression of the existing upload workflow. Exact checks and acceptance thresholds belong in the M5 design before implementation.
+Verify statistical correctness, query and chart responsiveness with four weeks of synthetic data, both interface languages, container delivery, and regression of the existing upload workflow. The [M5 design](milestone/m5.md) defines the exact checks and acceptance thresholds before implementation.
 
 **Excluded from M5:** AI reports, PDF export, battery/PV sizing recommendations, customer accounts, and remote device management.
 
@@ -102,4 +102,4 @@ Host networking, Wi-Fi, DHCP, VPN, certificates, and reverse-proxy management re
 - The **architecture document** maintains system boundaries and cross-stage technical principles, linking to both roadmaps.
 - **Milestone documents** hold stage-specific designs, contracts, atomic tasks, and acceptance records, with one English document and Chinese mirror per milestone.
 
-Prepare the detailed M5 design and task cards next. Refine M6 and other extensions before starting them; this roadmap does not commit to delivery dates or detailed implementations. Maintain semantically equivalent English and Chinese documents, with English authoritative.
+Implement M5 using its [detailed design and task cards](milestone/m5.md), recording actual checks and acceptance there. Refine M6 and other extensions before starting them; this roadmap does not commit to delivery dates or detailed implementations. Maintain semantically equivalent English and Chinese documents, with English authoritative.
