@@ -66,7 +66,7 @@ def test_overview_exact_range_charts_zoom_dates_history_and_latest(shell, analys
         times=[session.started_at - timedelta(days=10)],
     )
     page.goto(origin + f"/sites/{summary.site_id}")
-    expect(page.locator("#period-statistics")).to_contain_text("0.123456789012345678901")
+    expect(page.locator("#period-statistics")).to_contain_text("0.12")
     assert query(page)["session_id"] == str(session.session_id)
     assert query(page)["received_from"] == "2026-03-28T22:00:00.000000Z"
     assert query(page)["received_before"] == "2026-03-29T22:00:10.000001Z"
@@ -321,3 +321,125 @@ def test_sessions_pagination_refresh_race_and_timeout(shell, analysis_data):
     page.clock.run_for(22001)
     expect(page.get_by_role("alert")).to_contain_text("timed out")
     assert page.locator("#period-statistics").count() == 0
+
+
+@pytest.mark.parametrize("language,theme", [("en", "dark"), ("zh", "light")])
+def test_readable_measurements_preserve_original_data_and_microsecond_filters(
+    shell, analysis_data, tmp_path, language, theme
+):
+    """Presentation stays concise; network, JSON, CSV and exclusive edges stay exact."""
+    import csv
+    import re
+    from urllib.parse import urlencode
+
+    page, origin, _ = shell
+    _, summary, _, add = analysis_data
+    start = datetime(2026, 3, 1, 12, 34, 56, 123456, tzinfo=UTC)
+    exact = "1.005"
+    huge = "123456789012345678901234567890.125"
+    session, _ = add(
+        started_at=start,
+        times=[start, start + timedelta(microseconds=1), start + timedelta(seconds=10)],
+        metrics=[
+            {
+                "power_import_kw": Decimal(exact),
+                "power_export_kw": Decimal("1e-999"),
+                "energy_import_t1_kwh": Decimal(huge),
+            },
+            {
+                "power_import_kw": Decimal(exact),
+                "power_export_kw": Decimal("1e-999"),
+                "energy_import_t1_kwh": Decimal(huge),
+            },
+            {
+                "power_import_kw": Decimal(exact),
+                "power_export_kw": Decimal("1e-999"),
+                "energy_import_t1_kwh": Decimal(huge),
+            },
+        ],
+    )
+    login(page, origin)
+    if language == "zh":
+        page.get_by_label("Language").select_option("zh")
+    if theme == "light":
+        page.get_by_role("button", name="切换到浅色模式").click()
+    page.goto(origin + f"/sites/{summary.site_id}")
+    expect(page.locator("#period-statistics tbody tr").first.locator("td").first).to_have_text(
+        "1.01"
+    )
+    assert query(page)["received_before"] == "2026-03-01T12:35:06.123457Z"
+    # Every ordinary timestamp, including refresh/status and latest values, loses fractions.
+    assert not re.search(r"T\d\d:\d\d:\d\d\.\d", page.locator("body").inner_text())
+    refresh = page.locator("time").first
+    assert "." in refresh.get_attribute("datetime")
+    assert "." not in refresh.inner_text()
+    args = {key: query(page)[key] for key in ("session_id", "received_from", "received_before")}
+    response = page.request.get(
+        origin
+        + f"/api/admin/v1/sites/{summary.site_id}/analysis/latest?session_id={session.session_id}"
+    )
+    assert response.json()["data"]["snapshot"]["metrics"]["power_import_kw"] == exact
+    assert response.json()["data"]["snapshot"]["metrics"]["energy_import_t1_kwh"] == huge
+    overview = page.request.get(
+        origin + f"/api/admin/v1/sites/{summary.site_id}/analysis/overview?" + urlencode(args)
+    ).json()["data"]
+    tiny = overview["power"]["export_power"]["buckets"][0]["mean"]
+    assert Decimal(tiny) == Decimal("1e-999")
+    disclosure = page.locator("details").filter(
+        has_text="overflow or underflow" if language == "en" else "非下溢"
+    )
+    disclosure.locator("summary").click()
+    expect(disclosure.locator("pre")).to_contain_text(tiny)
+    disclosure.locator("summary").click()
+    # Capture real canvas tooltip text, including the numeric/date formatters.
+    page.evaluate("""() => {
+        window.painted = [];
+        const original = CanvasRenderingContext2D.prototype.fillText;
+        CanvasRenderingContext2D.prototype.fillText = function(text, ...args) {
+            window.painted.push(String(text)); return original.call(this, text, ...args);
+        };
+    }""")
+    canvas = page.locator("canvas").first
+    canvas.scroll_into_view_if_needed()
+    box = canvas.bounding_box()
+    page.mouse.move(box["x"] + 67, box["y"] + 140)
+    page.wait_for_timeout(300)
+    painted = page.evaluate("window.painted")
+    assert any("1.01" in text for text in painted), painted
+    assert not any(re.search(r"\d\d:\d\d:\d\d\.\d", text) for text in painted)
+    # Choose exactly one of two adjacent microsecond readings through editable raw filters.
+
+    raw_args = {
+        "tab": "raw",
+        "raw_session_id": args["session_id"],
+        "raw_received_from": "2026-03-01T12:34:56.123456Z",
+        "raw_received_before": "2026-03-01T12:34:56.123457Z",
+    }
+    page.goto(origin + f"/sites/{summary.site_id}?" + urlencode(raw_args))
+    expect(page.locator("#readings tbody tr")).to_have_count(1)
+    cells = page.locator("#readings tbody tr td")
+    expect(cells.nth(0)).to_have_text("2026-03-01T12:34:56Z")
+    expect(cells.nth(3)).to_have_text("123456789012345678901234567890.13")
+    expect(cells.nth(4)).to_have_text("1.01")
+    page.locator("#readings button").click()
+    expect(page.locator("#metrics")).to_contain_text("1.01")
+    expect(page.locator("#fields-quality")).to_be_hidden()
+    page.locator("#detail-dialog details summary").click()
+    expect(page.locator("#fields-quality")).to_contain_text(huge)
+    expect(page.locator("#fields-quality")).to_contain_text("2026-03-01T12:34:56.123456Z")
+    page.keyboard.press("Escape")
+    with page.expect_download() as downloaded:
+        page.get_by_role(
+            "button",
+            name="Export all filtered readings (CSV)"
+            if language == "en"
+            else "导出全部筛选读数（CSV）",
+        ).click()
+    target = tmp_path / "precise.csv"
+    downloaded.value.save_as(target)
+    with target.open() as stream:
+        rows = list(csv.DictReader(stream))
+    assert len(rows) == 1
+    assert rows[0]["power_import_kw"] == exact
+    assert rows[0]["energy_import_t1_kwh"] == huge
+    assert rows[0]["received_at"] == raw_args["raw_received_from"]

@@ -86,11 +86,11 @@ def test_phases_direct_url_direction_legend_numeric_raw_theme_language_and_refre
         for url in requests
     )
 
-    page.get_by_text("Exact phase buckets and gap flags", exact=True).click()
+    page.get_by_text("Phase buckets and gap flags", exact=True).click()
     expect(page.locator(".analysis-panel details tbody tr")).to_have_count(18)
     expect(page.locator(".analysis-panel details")).to_contain_text("L3")
     expect(page.locator(".analysis-panel details")).to_contain_text("0")
-    page.get_by_text("Exact phase buckets and gap flags", exact=True).click()
+    page.get_by_text("Phase buckets and gap flags", exact=True).click()
 
     # A shared phase checkbox removes that phase from every metric chart.
     before_canvases = page.locator("canvas").evaluate_all("nodes => nodes.map(e => e.toDataURL())")
@@ -109,7 +109,7 @@ def test_phases_direct_url_direction_legend_numeric_raw_theme_language_and_refre
     assert export_calls
 
     # Bucket lookup carries the selected session and exact bucket bounds, without fabricated IDs.
-    page.get_by_text("Exact phase buckets and gap flags", exact=True).click()
+    page.get_by_text("Phase buckets and gap flags", exact=True).click()
     link = page.get_by_role("link", name="Inspect bucket range").first
     href = link.get_attribute("href")
     args = parse_qs(urlparse(href).query)
@@ -146,7 +146,7 @@ def test_phases_direct_url_direction_legend_numeric_raw_theme_language_and_refre
       }
       return [...document.querySelectorAll('canvas')].slice(0, 2).every(blueMeanIsVisible)
     }""")
-    page.get_by_text("精确相位桶及缺口标记", exact=True).click()
+    page.get_by_text("相位桶及缺口标记", exact=True).click()
     expect(page.locator(".analysis-panel details")).to_contain_text("未提供")
     expect(page.locator(".analysis-panel details")).to_contain_text("0")
     page.get_by_label("监测会话", exact=True).select_option(str(gap_session.session_id))
@@ -168,10 +168,10 @@ def test_phases_direct_url_direction_legend_numeric_raw_theme_language_and_refre
       }
       return found.every(Boolean)
     }""")
-    page.get_by_text("精确相位桶及缺口标记", exact=True).click()
+    page.get_by_text("相位桶及缺口标记", exact=True).click()
     expect(page.locator(".analysis-panel details")).to_contain_text("221")
     expect(page.locator(".analysis-panel details")).to_contain_text("229")
-    page.get_by_text("精确相位桶及缺口标记", exact=True).click()
+    page.get_by_text("相位桶及缺口标记", exact=True).click()
     page.get_by_label("监测会话", exact=True).select_option(str(session.session_id))
     expect(page.get_by_text("L3", exact=True).first).to_be_visible()
     for width in (1024, 360):

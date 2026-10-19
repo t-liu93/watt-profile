@@ -4,7 +4,8 @@ import { readFile } from 'node:fs/promises'
 import ts from 'typescript'
 const moduleURL = code => `data:text/javascript;base64,${Buffer.from(ts.transpile(code, { target: ts.ScriptTarget.ES2023, module: ts.ModuleKind.ESNext })).toString('base64')}`
 const timeURL = moduleURL(await readFile(new URL('../src/lib/analysis-time.ts', import.meta.url), 'utf8'))
-const source = (await readFile(new URL('../src/lib/typical-day-chart.ts', import.meta.url), 'utf8')).replace("'./analysis-time'", JSON.stringify(timeURL))
+const presentationURL = moduleURL(await readFile(new URL('../src/lib/presentation.ts', import.meta.url), 'utf8'))
+const source = (await readFile(new URL('../src/lib/typical-day-chart.ts', import.meta.url), 'utf8')).replace("'./analysis-time'", JSON.stringify(timeURL)).replace("'./presentation'", JSON.stringify(presentationURL))
 const { typicalDayOption } = await import(moduleURL(source))
 test('each date group preserves exact mean/contributors, zero, null breaks and full 96 slots', () => {
  for (const count of [1, 2, 3]) {

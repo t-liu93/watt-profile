@@ -1,3 +1,4 @@
+import { measurement, timestamp } from './lib/presentation'
 import { useEffect, useMemo, useState } from 'react'
 import type { RefObject } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -22,13 +23,13 @@ export function SiteUsage({ client, language, base, query, params, refreshRef }:
  <label>{t.dateGroup}<select aria-label={t.dateGroup} value={group} onChange={event => { const next = new URLSearchParams(params); next.set('date_group', event.target.value); setParams(next) }}>{(['all', 'weekday', 'weekend'] as const).map(key => <option key={key} value={key}>{t[key]}</option>)}</select></label>
  <p>{t.typicalHelp}</p><p>{t.eligibilityHelp}</p><p>{t.dstHelp}</p><p>{t.gridHelp}</p>
  <ReadStatus read={read} language={language}/>
- {read.result && <><p>{t.count}: {read.result.context.reading_count} · {t.calculated}: {read.result.context.calculated_at}</p><p>{t.actual}: {read.result.context.first_reading_received_at ?? t.unavailable} → {read.result.context.latest_reading_received_at ?? t.unavailable}</p></>}
+ {read.result && <><p>{t.count}: {read.result.context.reading_count} · {t.calculated}: {timestamp(read.result.context.calculated_at)}</p><p>{t.actual}: {timestamp(read.result.context.first_reading_received_at, t.unavailable)} → {timestamp(read.result.context.latest_reading_received_at, t.unavailable)}</p></>}
  {slots && <>
  {!slots.some(slot => slot.contributing_date_count > 0) && <p role="status">{t.noEligible}</p>}
  {option && <AnalysisChart option={option} label={t.typicalDay}/>}
  <Unplottable values={slots.map(slot => slot.mean)} language={language}/>
  <div className="analysis-grid">{(['power_import_kw', 'power_export_kw'] as const).map(metric => { const counts = slots.filter(slot => slot.metric === metric).map(slot => slot.contributing_date_count), eligible = counts.filter(count => count > 0); return <article key={metric}><h4>{metricLabel(metric, language)}</h4><p>{t.eligibleSlots}: {eligible.length} / 96</p><p>{t.contributors}: {eligible.length ? `${Math.min(...eligible)}–${Math.max(...eligible)}` : '0'}</p></article> })}</div><p>{t.contributorsHelp}</p>
- <details><summary>{t.typicalNumeric}</summary><div className="table-scroll"><table id="typical-day-values"><thead><tr><th>{t.localTime}</th><th>{t.metric}</th><th>{t.mean} (kW)</th><th>{t.contributors}</th></tr></thead><tbody>{slots.map(slot => <tr key={slot.local_time + slot.metric}><td>{slot.local_time}</td><th>{metricLabel(slot.metric, language)}</th><td>{slot.mean ?? t.unavailable}</td><td>{slot.contributing_date_count}</td></tr>)}</tbody></table></div></details>
+ <details><summary>{t.typicalNumeric}</summary><div className="table-scroll"><table id="typical-day-values"><thead><tr><th>{t.localTime}</th><th>{t.metric}</th><th>{t.mean} (kW)</th><th>{t.contributors}</th></tr></thead><tbody>{slots.map(slot => <tr key={slot.local_time + slot.metric}><td>{slot.local_time}</td><th>{metricLabel(slot.metric, language)}</th><td>{measurement(slot.mean, t.unavailable)}</td><td>{slot.contributing_date_count}</td></tr>)}</tbody></table></div></details>
  </>}
  {params.get('session_id') && <p><Link to={rawLink(params, null, null, params.get('session_id')!)}>{t.rangeRaw}</Link> · {t.aggregateHelp}</p>}
  </Panel>

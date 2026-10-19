@@ -3,7 +3,7 @@
 # ruff: noqa: F811
 import os
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal, localcontext
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -48,8 +48,16 @@ def assert_api_table(page, origin, site, group):
     )
     assert response.ok
     slots = response.json()["data"]["groups"][0]["slots"]
+
+    def rounded(value):
+        if value is None:
+            return "Unavailable"
+        with localcontext() as context:
+            context.prec = 100
+            return str(Decimal(value).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
     expected = [
-        [slot["local_time"], slot["mean"] or "Unavailable", str(slot["contributing_date_count"])]
+        [slot["local_time"], rounded(slot["mean"]), str(slot["contributing_date_count"])]
         for slot in slots
     ]
     expect(page.locator("#typical-day-values tbody tr")).to_have_count(192)
@@ -75,10 +83,10 @@ def test_usage_direct_groups_exact_values_theme_language_url_and_overview(shell,
         "&raw_received_before=2000-01-02T00:00:00Z&raw_offset=200"
         "&raw_device_id=stale-device&raw_record_id=stale-record"
     )
-    page.get_by_text("Exact average-day values and contributing dates", exact=True).click()
+    page.get_by_text("Average-day values and contributing dates", exact=True).click()
     values = assert_api_table(page, origin, summary.site_id, "all")
     assert values[0][0] == "00:00:00" and Decimal(values[0][1]) == 5 and values[0][2] == "2"
-    assert Decimal(values[1][1]) == Decimal("0.123456789012345678901")
+    assert values[1][1] == "0.12"
     assert values[1][2] == "1"
     assert values[2] == ["00:15:00", "Unavailable", "0"]
     assert query(page)["session_id"] == str(session.session_id)
@@ -110,7 +118,7 @@ def test_usage_direct_groups_exact_values_theme_language_url_and_overview(shell,
         assert query(page)["date_group"] == group
     saved = page.url
     page.reload()
-    page.get_by_text("Exact average-day values and contributing dates", exact=True).click()
+    page.get_by_text("Average-day values and contributing dates", exact=True).click()
     expect(page.get_by_label("Date group", exact=True)).to_have_value("weekend")
     assert_api_table(page, origin, summary.site_id, "weekend")
     assert page.url == saved
@@ -126,12 +134,12 @@ def test_usage_direct_groups_exact_values_theme_language_url_and_overview(shell,
     expect(page.locator("#period-statistics")).to_be_visible()
     assert query(page) == custom | {"tab": "overview"}
     page.get_by_role("link", name="Usage patterns", exact=True).click()
-    page.get_by_text("Exact average-day values and contributing dates", exact=True).click()
+    page.get_by_text("Average-day values and contributing dates", exact=True).click()
     assert_api_table(page, origin, summary.site_id, "weekday")
     assert query(page) == custom
     screenshots = os.environ.get("WATT_TEST_SCREENSHOT_DIR")
     if screenshots:
-        page.get_by_text("Exact average-day values and contributing dates", exact=True).click()
+        page.get_by_text("Average-day values and contributing dates", exact=True).click()
         target = Path(screenshots)
         target.mkdir(parents=True, exist_ok=True)
         page.screenshot(path=str(target / "usage-light-desktop.png"), full_page=True)
@@ -165,7 +173,7 @@ def test_usage_noeligible_refresh_failure_no_history_poll_and_session_selection(
     page.on("request", lambda request: requests.append(request.url))
     page.goto(origin + f"/sites/{summary.site_id}?tab=usage")
     expect(page.locator("canvas")).to_have_count(1)
-    page.get_by_text("Exact average-day values and contributing dates", exact=True).click()
+    page.get_by_text("Average-day values and contributing dates", exact=True).click()
     assert_api_table(page, origin, summary.site_id, "all")
     initial = len([url for url in requests if "/analysis/typical-day?" in url])
     page.clock.run_for(30000)
@@ -231,7 +239,7 @@ def test_usage_obsolete_group_and_refresh_callbacks(shell, analysis_data, obsole
     expect(page.get_by_role("alert")).to_have_count(0)
     assert query(page)["date_group"] == "weekend"
     page.unroute("**/analysis/typical-day?*")
-    page.get_by_text("Exact average-day values and contributing dates", exact=True).click()
+    page.get_by_text("Average-day values and contributing dates", exact=True).click()
     assert_api_table(page, origin, summary.site_id, "weekend")
     held.clear()
     page.route("**/analysis/sessions?*", lambda route: held.append(route))

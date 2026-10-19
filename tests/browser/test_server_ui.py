@@ -248,6 +248,7 @@ def test_readings_filters_detail_complete_csv_and_polling(server_browser, tmp_pa
     expect(page.get_by_role("button", name="View reading")).to_have_count(1)
     page.get_by_role("button", name="View reading").click()
     expect(page.locator("#metrics dt")).to_have_count(18)
+    page.get_by_text("Complete fields, quality and canonical data", exact=True).last.click()
     expect(page.locator("#fields-quality")).to_contain_text('"quality"')
     page.keyboard.press("Escape")
     expect(page.locator("#detail-dialog")).to_be_hidden()

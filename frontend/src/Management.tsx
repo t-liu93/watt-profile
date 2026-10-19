@@ -1,3 +1,4 @@
+import { timestamp } from './lib/presentation'
 import { useEffect, useRef, useState } from 'react';
 import type { ComponentProps, FormEvent, ReactNode } from 'react';
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
@@ -54,7 +55,7 @@ function StatusRefresh({ status, language }: {
     const t = managementResources[language], errors = resources[language].errors;
     return <div className="action-row">
         <Button aria-pressed={status.paused} onClick={() => status.setPaused(!status.paused)}>{status.paused ? t.resumeRefresh : t.pauseRefresh}</Button>
-        {status.updatedAt && <p id="status-updated" role="status">{t.updatedAt} <time dateTime={status.updatedAt}>{status.updatedAt}</time></p>}
+        {status.updatedAt && <p id="status-updated" role="status">{t.updatedAt} <time dateTime={status.updatedAt}>{timestamp(status.updatedAt)}</time></p>}
         {status.error && <p id="status-error" role="alert">{t.statusRefreshFailed} {errors[status.error as keyof typeof errors] ?? errors.unknown}</p>}
     </div>;
 }
@@ -133,7 +134,7 @@ export function Sites({ client, language }: Props) {
         </td>
         <td>{item.site.address}</td>
         <td>{item.reading_count}</td>
-        <td>{item.latest_reading_received_at ?? t.unavailable}</td>
+        <td>{timestamp(item.latest_reading_received_at, t.unavailable)}</td>
         <td className="identifier">
         <Link to={'/sites/' + item.site.site_id}>{item.site.site_id}</Link>
         </td>
@@ -165,7 +166,7 @@ export function Devices({ client, language }: Props) {
     <Panel title={resources[language].devices}>
     <Button id="reload" onClick={() => { if (!m.isBusy()) void load(); }}>{t.reload}</Button>{!result && !m.error && !status.error && <p role="status">{t.loading}</p>}<div id="devices">{result?.items.map(({ device, latest_reading_received_at }) => <article key={device.device_id}>
         <Link to={'/devices/' + device.device_id}>{deviceLabel(device)}</Link>
-        <Details entries={[[t.deviceId, device.device_id], [t.contact, device.last_authenticated_contact_at ?? t.unavailable], [t.latest, latest_reading_received_at ?? t.unavailable]]}/>
+        <Details entries={[[t.deviceId, device.device_id], [t.contact, timestamp(device.last_authenticated_contact_at, t.unavailable)], [t.latest, timestamp(latest_reading_received_at, t.unavailable)]]}/>
         </article>)}{result?.items.length === 0 && <p>{t.emptyDevices}</p>}</div>{result && <Pagination language={language} total={result.total} offset={offset} limit={limit} onChange={value => setParams({ offset: String(value) })}/>}</Panel>
     <Panel title={t.separateDevice}>
     <AdminForm m={m} id="create-device" onSubmit={event => { event.preventDefault(); const data = formValues(event.currentTarget); void m.run(async () => { const device = await m.request<{
@@ -197,7 +198,7 @@ function SiteSettings({ client, language, id }: Props & {
         </Panel> : result && <>
         <Panel title={t.settings}>
         <div id="status">
-        <Details entries={[[t.siteId, id], [t.name, result.site.display_name || t.none], [t.address, result.site.address], [t.description, result.site.description], [t.count, result.reading_count], [t.latest, result.latest_reading_received_at ?? t.unavailable], [t.authorized, result.authorized_device_ids.length ? result.authorized_device_ids.map(device => <Link key={device} to={'/devices/' + device}>{device} </Link>) : t.none]]}/>
+        <Details entries={[[t.siteId, id], [t.name, result.site.display_name || t.none], [t.address, result.site.address], [t.description, result.site.description], [t.count, result.reading_count], [t.latest, timestamp(result.latest_reading_received_at, t.unavailable)], [t.authorized, result.authorized_device_ids.length ? result.authorized_device_ids.map(device => <Link key={device} to={'/devices/' + device}>{device} </Link>) : t.none]]}/>
         </div>
         <AdminForm m={m} key={revision} id="edit-site" onSubmit={event => { event.preventDefault(); setConfirmation(formValues(event.currentTarget)); }}>
         <Field name="display_name" label={t.name} maxLength={100} value={result.site.display_name}/>
@@ -229,7 +230,7 @@ function DeviceSettings({ client, language, id }: Props & {
     <Button id="reload" onClick={() => { if (!m.isBusy()) void load(); }}>{t.reload}</Button>{!result && !m.error && !status.error && <p role="status">{t.loading}</p>}{result && <>
         <Panel title={resources[language].device}>
         <div id="status">
-        <Details entries={[[t.deviceId, id], [t.contact, result.device.last_authenticated_contact_at ?? t.unavailable], [t.latest, result.status.latest_reading_received_at ?? t.unavailable]]}/>
+        <Details entries={[[t.deviceId, id], [t.contact, timestamp(result.device.last_authenticated_contact_at, t.unavailable)], [t.latest, timestamp(result.status.latest_reading_received_at, t.unavailable)]]}/>
         </div>
         <AdminForm m={m} onSubmit={event => { event.preventDefault(); const data = formValues(event.currentTarget); void m.run(async () => { await m.request('/devices/' + id, 'PATCH', data); await load(true); m.setMessage(t.saved); }, true); }}>
         <Field name="display_name" label={t.name} value={result.device.display_name} maxLength={100}/>
@@ -239,7 +240,7 @@ function DeviceSettings({ client, language, id }: Props & {
         <Panel title={t.credentials}>
         <div id="credentials">{result.credentials.map(credential => <article key={credential.credential_id}>
             <p className="identifier">{credential.credential_id}</p>
-            <Details entries={[[t.createdAt, credential.created_at], [t.disabledAt, credential.disabled_at ?? t.none]]}/>{!credential.disabled_at && <Button disabled={m.busy} onClick={() => setConfirmation({ kind: 'disable', id: credential.credential_id })}>{t.disable}</Button>}</article>)}{!result.credentials.length && <p>{t.noCredentials}</p>}</div>{!result.credentials.length && <AdminForm m={m} id="first-credential" onSubmit={event => { event.preventDefault(); const input = event.currentTarget.elements.namedItem('token') as HTMLInputElement; const token = input.value; input.value = ''; if (!token)
+            <Details entries={[[t.createdAt, timestamp(credential.created_at)], [t.disabledAt, timestamp(credential.disabled_at, t.none)]]}/>{!credential.disabled_at && <Button disabled={m.busy} onClick={() => setConfirmation({ kind: 'disable', id: credential.credential_id })}>{t.disable}</Button>}</article>)}{!result.credentials.length && <p>{t.noCredentials}</p>}</div>{!result.credentials.length && <AdminForm m={m} id="first-credential" onSubmit={event => { event.preventDefault(); const input = event.currentTarget.elements.namedItem('token') as HTMLInputElement; const token = input.value; input.value = ''; if (!token)
                 return; void m.run(async () => { await m.request('/devices/' + id + '/credentials', 'POST', { token }); await load(true); }, true); }}>
             <label>{t.first}<input name="token" type="password" autoComplete="off" required/>
             </label>
