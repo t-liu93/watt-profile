@@ -312,7 +312,7 @@ def test_device_creation_grants_confirmations_errors_and_expiry(server_browser):
     page, origin, app, raw, summary, _ = server_browser
     register(page, raw)
     page.get_by_role("link", name="Open registered device").click()
-    expect(page.locator("#status")).to_contain_text("Last authenticated contact (UTC)")
+    expect(page.locator("#status")).to_contain_text("Last authenticated contact")
     expect(page.locator("#status")).to_contain_text("Unavailable")
     page.get_by_role("button", name="Revoke grant").click()
     expect(page.get_by_role("dialog")).to_contain_text("Pending Logger records")

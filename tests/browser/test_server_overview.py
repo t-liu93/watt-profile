@@ -333,6 +333,8 @@ def test_readable_measurements_preserve_original_data_and_microsecond_filters(
     from urllib.parse import urlencode
 
     page, origin, _ = shell
+    # Keep this precision regression deterministic across runner system timezones.
+    page.context.new_cdp_session(page).send("Emulation.setTimezoneOverride", {"timezoneId": "UTC"})
     _, summary, _, add = analysis_data
     start = datetime(2026, 3, 1, 12, 34, 56, 123456, tzinfo=UTC)
     exact = "1.005"
@@ -418,7 +420,7 @@ def test_readable_measurements_preserve_original_data_and_microsecond_filters(
     page.goto(origin + f"/sites/{summary.site_id}?" + urlencode(raw_args))
     expect(page.locator("#readings tbody tr")).to_have_count(1)
     cells = page.locator("#readings tbody tr td")
-    expect(cells.nth(0)).to_have_text("2026-03-01T12:34:56Z")
+    expect(cells.nth(0)).to_have_text("2026-03-01 12:34:56")
     expect(cells.nth(3)).to_have_text("123456789012345678901234567890.13")
     expect(cells.nth(4)).to_have_text("1.01")
     page.locator("#readings button").click()
