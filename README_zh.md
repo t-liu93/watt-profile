@@ -60,6 +60,8 @@ Logger 本地采集 DSMR 5，并在上传前持久化快照。配置 origin 后�
 
 Server 已实现管理员注册、授权批量接收、读数和 CSV 导出；当前 M4 Logger 源码会自动上传已确认批次。独立 [Compose](deploy/server/compose.yml) 仅包含应用和 PostgreSQL，只发布一个 HTTP 应用端口，默认将 `127.0.0.1:18081` 映射到容器 8080；PostgreSQL 不发布宿主端口。所有者的宿主机／上游 Nginx 独立管理 HTTPS、证书和反代。2026-10-18 所有者使用独立的 [Linux Install Helper 部署脚本](https://github.com/t-liu93/Linux-install-helper/blob/10197f8/watt-profile/README_zh.md) 部署已发布的 alpha.2 Server，确认 HTTPS／管理员登录正常，并手动验证本地备份和对应远端归档。每日定时执行及使用该实际归档恢复尚未观察验证。外部 origin/HTTP 验证及修订自动回归已通过；所有者于 2026-10-14 验收 [M3](docs/milestone/m3_zh.md)，并确认走查资源已清理。
 
+当前 M5 工作台通过**注册**添加站点和设备：在 Logger 创建站点（新增站点的 **Existing Site UUID** 留空），显示／复制注册 JSON，再到 Server 预览并确认。身份编号及初始 Token 由 Logger 提供。Server 的站点和设备列表链接到该流程；现有名称、授权及凭据禁用仍在详情页管理。参见 [M5 接入契约](docs/milestone/m5_zh.md#所有者走查后续m5-ui-04--普通接入统一使用-logger-注册)。
+
 将[脱敏示例](deploy/server/.env.example)复制到被忽略的 `deploy/server/.env.local` 并替换所有占位符。将 `WATT_SERVER_PUBLIC_ORIGIN` 设为外部浏览器源（经 Nginx 使用 HTTPS），HTTPS 保持 `WATT_SERVER_COOKIE_SECURE=true`；若上游需要可达接口或其他端口，选择 `WATT_SERVER_BIND_ADDRESS`／`WATT_SERVER_PUBLISHED_PORT`。提供私有 DB／应用凭据目录（0700）及文件（0600）；应用文件归 UID/GID 10001 所有并只读挂载。DB 目录包含 `password`；应用目录包含 `database-url` 和 `admin-password`，DB 凭据必须一致且不提供开发默认值。启动前阅读[操作说明](docs/milestone/m3_zh.md#m3-11-部署操作)：
 
 本地源码构建前，先激活 Python 3.12，并将准确版本 Node **24.22.0** 和 npm **11.16.0** 放入 `PATH`。在仓库根目录完成一次构建／检查，导出记录的摘要并暂存同一份字节，然后启动 Compose（在同一 shell 中保留该导出变量）：

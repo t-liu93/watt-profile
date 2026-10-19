@@ -10,7 +10,7 @@ import type { Language } from './i18n';
 import { managementResources } from './management-i18n';
 import { APIClient, RequestOwner } from './lib/api';
 import { aborted, deviceLabel, errorCode, formValues, siteLabel, useManagement, useStatusRefresh } from './lib/management';
-import type { DeviceDetail, DeviceSummary, Page, RegistrationResult, Site, SiteStatus, SiteSummary } from './lib/management';
+import type { DeviceDetail, DeviceSummary, Page, RegistrationResult, SiteStatus, SiteSummary } from './lib/management';
 type Props = {
     client: APIClient;
     language: Language;
@@ -94,11 +94,20 @@ function Details({ entries }: {
         <dd>{value}</dd>
         </div>)}</dl>;
 }
+function RegistrationGuidance({ language, initialCredential = false }: {
+    language: Language;
+    initialCredential?: boolean;
+}) {
+    const t = managementResources[language];
+    return <div id="registration-guidance">
+        <p>{initialCredential ? t.initialCredentialHelp : t.onboardingHelp}</p>
+        <Link to="/registration">{t.openRegistration}</Link>
+    </div>;
+}
 export function Sites({ client, language }: Props) {
     const t = managementResources[language], m = useManagement(client);
     const [params, setParams] = useSearchParams();
     const offset = Math.max(0, Number(params.get('offset')) || 0), limit = 20;
-    const [created, setCreated] = useState<Site | null>(null);
     const query = params.toString();
     const searchParams = new URLSearchParams(query);
     searchParams.set('offset', String(offset)); searchParams.set('limit', String(limit));
@@ -113,6 +122,7 @@ export function Sites({ client, language }: Props) {
     <h2>{resources[language].sites}</h2>
     <Feedback m={m} language={language}/>
     <StatusRefresh status={status} language={language}/>
+    <RegistrationGuidance language={language}/>
     <Panel title={resources[language].sites}>
     <AdminForm m={m} className="inline-form" onSubmit={search}>
     <label>{t.searchMode}<select key={query} aria-label={t.searchMode} name="mode" defaultValue={params.has('site_id') ? 'site_id' : 'q'}>
@@ -143,38 +153,23 @@ export function Sites({ client, language }: Props) {
         </tr>}</tbody>
     </table>
     </div>{result && <Pagination language={language} total={result.total} offset={offset} limit={limit} onChange={value => { const next = new URLSearchParams(params); next.set('offset', String(value)); setParams(next); }}/>}</Panel>
-    <Panel title={t.separateSite}>
-    <AdminForm m={m} id="create-site" onSubmit={event => { event.preventDefault(); const data = formValues(event.currentTarget); void m.run(async () => { const site = await m.request<Site>('/sites', 'POST', data); setCreated(site); m.setMessage(t.created); await load(true); }, true); }}>
-    <Field label={t.siteId} name="site_id" required/>
-    <Field label={t.name} name="display_name" maxLength={100}/>
-    <Field label={t.address} name="address" multiline/>
-    <Field label={t.description} name="description" multiline/>
-    <Button type="submit" disabled={m.busy}>{t.createSite}</Button>
-    </AdminForm>{created && <Link to={'/sites/' + created.site_id}>{t.openSite}</Link>}</Panel>
     </>;
 }
 export function Devices({ client, language }: Props) {
     const t = managementResources[language], m = useManagement(client);
     const [params, setParams] = useSearchParams(), offset = Math.max(0, Number(params.get('offset')) || 0), limit = 20;
-    const [created, setCreated] = useState('');
     const status = useStatusRefresh<Page<DeviceSummary>>(client, m, `/devices?offset=${offset}&limit=${limit}`);
     const { result, load } = status;
     return <>
     <h2>{resources[language].devices}</h2>
     <Feedback m={m} language={language}/>
     <StatusRefresh status={status} language={language}/>
+    <RegistrationGuidance language={language}/>
     <Panel title={resources[language].devices}>
     <Button id="reload" onClick={() => { if (!m.isBusy()) void load(); }}>{t.reload}</Button>{!result && !m.error && !status.error && <p role="status">{t.loading}</p>}<div id="devices">{result?.items.map(({ device, latest_reading_received_at }) => <article key={device.device_id}>
         <Link to={'/devices/' + device.device_id}>{deviceLabel(device)}</Link>
         <Details entries={[[t.deviceId, device.device_id], [t.contact, timestamp(device.last_authenticated_contact_at, t.unavailable)], [t.latest, timestamp(latest_reading_received_at, t.unavailable)]]}/>
         </article>)}{result?.items.length === 0 && <p>{t.emptyDevices}</p>}</div>{result && <Pagination language={language} total={result.total} offset={offset} limit={limit} onChange={value => setParams({ offset: String(value) })}/>}</Panel>
-    <Panel title={t.separateDevice}>
-    <AdminForm m={m} id="create-device" onSubmit={event => { event.preventDefault(); const data = formValues(event.currentTarget); void m.run(async () => { const device = await m.request<{
-        device_id: string;
-    }>('/devices', 'POST', data); setCreated(device.device_id); m.setMessage(t.created); await load(true); }, true); }}>
-    <Field name="device_id" label={t.deviceId} required/>
-    <Button type="submit" disabled={m.busy}>{t.createDevice}</Button>
-    </AdminForm>{created && <Link to={'/devices/' + created}>{t.openDevice}</Link>}</Panel>
     </>;
 }
 export function SiteView(props: Props) { const { id } = useParams(); return <SiteSettings key={id} {...props} id={id!}/>; }
@@ -240,12 +235,7 @@ function DeviceSettings({ client, language, id }: Props & {
         <Panel title={t.credentials}>
         <div id="credentials">{result.credentials.map(credential => <article key={credential.credential_id}>
             <p className="identifier">{credential.credential_id}</p>
-            <Details entries={[[t.createdAt, timestamp(credential.created_at)], [t.disabledAt, timestamp(credential.disabled_at, t.none)]]}/>{!credential.disabled_at && <Button disabled={m.busy} onClick={() => setConfirmation({ kind: 'disable', id: credential.credential_id })}>{t.disable}</Button>}</article>)}{!result.credentials.length && <p>{t.noCredentials}</p>}</div>{!result.credentials.length && <AdminForm m={m} id="first-credential" onSubmit={event => { event.preventDefault(); const input = event.currentTarget.elements.namedItem('token') as HTMLInputElement; const token = input.value; input.value = ''; if (!token)
-                return; void m.run(async () => { await m.request('/devices/' + id + '/credentials', 'POST', { token }); await load(true); }, true); }}>
-            <label>{t.first}<input name="token" type="password" autoComplete="off" required/>
-            </label>
-            <Button type="submit" disabled={m.busy}>{t.registerFirst}</Button>
-            </AdminForm>}</Panel>
+            <Details entries={[[t.createdAt, timestamp(credential.created_at)], [t.disabledAt, timestamp(credential.disabled_at, t.none)]]}/>{!credential.disabled_at && <Button disabled={m.busy} onClick={() => setConfirmation({ kind: 'disable', id: credential.credential_id })}>{t.disable}</Button>}</article>)}{!result.credentials.length && <p>{t.noCredentials}</p>}</div>{!result.credentials.length && <RegistrationGuidance language={language} initialCredential/>}</Panel>
         <Panel title={t.grants}>
         <div id="grants">{result.sites.map(site => <article key={site.site_id}>
             <Link to={'/sites/' + site.site_id}>{siteLabel(site)} · {site.site_id}</Link>

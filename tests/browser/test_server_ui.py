@@ -5,10 +5,12 @@
 import csv
 import io
 import json
+import os
 import socket
 import threading
 import time
 from dataclasses import replace
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -308,7 +310,7 @@ def test_readings_filters_detail_complete_csv_and_polling(server_browser, tmp_pa
     expect(page.get_by_text("No accepted readings", exact=True)).to_be_visible()
 
 
-def test_device_creation_grants_confirmations_errors_and_expiry(server_browser):
+def test_registered_device_grants_confirmations_errors_and_expiry(server_browser):
     page, origin, app, raw, summary, _ = server_browser
     register(page, raw)
     page.get_by_role("link", name="Open registered device").click()
@@ -336,25 +338,15 @@ def test_device_creation_grants_confirmations_errors_and_expiry(server_browser):
     page.get_by_label("Logger registration JSON").fill(raw)
     page.get_by_role("button", name="Preview registration").click()
     expect(page.locator("#error")).to_contain_text("Registration conflicts")
-    # Separate site/device creation and first credential use the same guarded APIs.
-    new_site, new_device = str(uuid4()), str(uuid4())
-    page.goto(origin + "/sites")
-    expect(page.get_by_role("heading", name="Create site separately")).to_be_visible()
-    page.locator('#create-site input[name="site_id"]').fill(new_site)
-    page.locator('#create-site textarea[name="address"]').fill("Separate synthetic site")
-    page.get_by_role("button", name="Create site", exact=True).click()
-    expect(page.locator("#sites")).to_contain_text(new_site)
-    page.goto(origin + "/devices")
-    page.get_by_label("Device UUID", exact=True).fill(new_device)
-    page.get_by_role("button", name="Create device", exact=True).click()
-    expect(page.locator("#devices")).to_contain_text(new_device)
-    page.goto(origin + "/devices/" + new_device)
-    page.get_by_label("First credential Token").fill("b" * 43)
-    page.get_by_role("button", name="Register first credential").click()
+    # A further registration creates a linked site/device/credential; existing grants
+    # can still be managed independently of onboarding.
+    new_summary = dict(summary, site_id=str(uuid4()), device_id=str(uuid4()), token="b" * 43)
+    register(page, json.dumps(new_summary))
+    page.get_by_role("link", name="Open registered device").click()
     expect(page.get_by_role("button", name="Disable credential")).to_have_count(1)
-    page.get_by_label("Site UUID", exact=True).fill(new_site)
+    page.get_by_label("Site UUID", exact=True).fill(summary["site_id"])
     page.get_by_role("button", name="Add site grant").click()
-    expect(page.locator("#grants")).to_contain_text(new_site)
+    expect(page.locator("#grants")).to_contain_text(summary["site_id"])
     # Finish the dashboard startup refresh before exercising an explicit retry.
     # Otherwise retry can correctly coalesce with a request admitted before auth.clear().
     page.goto(origin + "/registration", wait_until="networkidle")
@@ -632,11 +624,12 @@ def test_names_search_pagination_and_selected_language_validation(server_browser
     expect(page.locator("#sites tr")).to_have_count(2)
     # Selected language controls validation even though Chromium is English.
     page.get_by_label("Language").select_option("zh")
-    page.get_by_role("button", name="创建站点", exact=True).click()
+    page.locator("#registration-guidance a").click()
+    page.get_by_role("button", name="预览注册", exact=True).click()
     expect(page.get_by_role("alert")).to_contain_text("请检查表单内容后重试")
-    expect(page.locator('#create-site input[name="site_id"]')).to_be_focused()
-    page.locator('#create-site input[name="site_id"]').fill("invalid-synthetic-uuid")
-    page.get_by_role("button", name="创建站点", exact=True).click()
+    expect(page.locator("#summary")).to_be_focused()
+    page.locator("#summary").fill("invalid-synthetic-json")
+    page.get_by_role("button", name="预览注册", exact=True).click()
     expect(page.get_by_role("alert")).to_contain_text("请检查表单内容后重试")
     page.get_by_label("语言").select_option("en")
     page.goto(origin + "/devices/" + summary["device_id"])
@@ -650,7 +643,7 @@ def test_names_search_pagination_and_selected_language_validation(server_browser
     expect(page.get_by_role("heading", name=summary["device_id"][:8], exact=True)).to_be_visible()
 
 
-def test_mutation_duplicate_guards_and_first_token_failure_cleanup(server_browser):
+def test_mutation_duplicate_guards_and_registration_failure_secret_cleanup(server_browser):
     page, origin, _, raw, summary, _ = server_browser
     register(page, raw)
     page.get_by_role("link", name="Open registered device").click()
@@ -668,28 +661,22 @@ def test_mutation_duplicate_guards_and_first_token_failure_cleanup(server_browse
     expect(page.get_by_role("dialog")).to_be_hidden()
     expect(page.locator("#grants")).to_contain_text(summary["site_id"])
     page.unroute("**/devices/*/sites/*")
-    device_id = str(uuid4())
-    csrf = page.locator('meta[name="csrf-token"]').get_attribute("content")
-    assert page.request.post(
-        origin + P + "/devices",
-        headers={"X-CSRF-Token": csrf},
-        data={"device_id": device_id},
-    ).ok
-    page.goto(origin + "/devices/" + device_id)
+    # Initial credentials now use registration, which clears the visible secret at
+    # preview and guards duplicate commits even if the Server rejects the mutation.
+    preview(page, raw)
     held = []
-    page.route("**/devices/*/credentials", lambda route: held.append(route))
-    page.get_by_label("First credential Token").fill("c" * 43)
-    page.locator("#first-credential").evaluate(
-        "form => {form.requestSubmit();form.requestSubmit()}"
-    )
+    page.route("**/api/admin/v1/registrations", lambda route: held.append(route))
+    page.locator("#register").evaluate("button => {button.click(); button.click()}")
     page.wait_for_timeout(100)
     assert len(held) == 1
-    assert page.get_by_label("First credential Token").input_value() == ""
+    assert page.locator("#summary").input_value() == ""
     held.pop().fulfill(status=503, json={"error": {"code": "temporarily_unavailable"}})
     expect(page.get_by_role("alert")).to_contain_text("Server is temporarily unavailable")
-    assert page.get_by_label("First credential Token").input_value() == ""
-    assert "c" * 43 not in page.content()
-    page.unroute("**/devices/*/credentials")
+    assert page.locator("#summary").input_value() == ""
+    assert summary["token"] not in page.content()
+    page.get_by_role("button", name="Cancel registration").click()
+    expect(page.locator("#registration-preview")).to_be_hidden()
+    page.unroute("**/api/admin/v1/registrations")
 
 
 def test_late_preview_navigation_and_registration_expiry_clear_memory(server_browser):
@@ -715,3 +702,117 @@ def test_late_preview_navigation_and_registration_expiry_clear_memory(server_bro
     expect(page.get_by_role("heading", name="Server login")).to_be_visible()
     assert summary["token"] not in page.content()
     assert page.locator("#registration-preview").count() == 0
+
+
+@pytest.mark.parametrize("language", ["en", "zh"])
+@pytest.mark.parametrize("theme", ["dark", "light"])
+def test_registration_is_ordinary_onboarding_in_both_languages_and_themes(
+    server_browser, tmp_path, language, theme
+):
+    page, origin, _, raw, summary, _ = server_browser
+    if theme == "light":
+        page.get_by_role("button", name="Switch to light mode").click()
+    if language == "zh":
+        page.get_by_label("Language").select_option("zh")
+    labels = {
+        "en": (
+            "Open Logger registration",
+            "Logger registration JSON",
+            "Preview registration",
+            "Confirm registration",
+            "Open registered device",
+            "Open registered site",
+        ),
+        "zh": (
+            "打开 Logger 注册",
+            "Logger 注册 JSON",
+            "预览注册",
+            "确认注册",
+            "打开已注册设备",
+            "打开已注册站点",
+        ),
+    }[language]
+    screenshots = Path(os.environ.get("WATT_TEST_SCREENSHOT_DIR", str(tmp_path / "screenshots")))
+    screenshots.mkdir(exist_ok=True)
+
+    def guidance(path, state):
+        page.goto(origin + path)
+        expect(page.locator("#status-updated")).to_be_visible()
+        expect(page.locator("html")).to_have_attribute("data-theme", theme)
+        expect(page.locator("html")).to_have_attribute(
+            "lang", "en" if language == "en" else "zh-CN"
+        )
+        expect(page.locator("#create-site, #create-device, #first-credential")).to_have_count(0)
+        expect(
+            page.locator('input[name="site_id"], input[name="device_id"], input[name="token"]')
+        ).to_have_count(0)
+        expect(page.get_by_role("button", name="Create site", exact=True)).to_have_count(0)
+        expect(page.get_by_role("button", name="Create device", exact=True)).to_have_count(0)
+        expect(page.get_by_role("button", name="创建站点", exact=True)).to_have_count(0)
+        expect(page.get_by_role("button", name="创建设备", exact=True)).to_have_count(0)
+        expect(page.locator("#registration-guidance")).to_contain_text("Logger")
+        expect(page.locator("#registration-guidance")).to_contain_text("Token")
+        for width in (1440, 360):
+            page.set_viewport_size({"width": width, "height": 900})
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+            page.screenshot(
+                path=str(screenshots / f"onboarding-{language}-{theme}-{state}-{width}.png"),
+                full_page=True,
+            )
+        page.get_by_role("link", name=labels[0], exact=True).click()
+        expect(page).to_have_url(origin + "/registration")
+        expect(page.get_by_label(labels[1], exact=True)).to_be_visible()
+        page.set_viewport_size({"width": 1440, "height": 900})
+
+    for path, container in (("/sites", "#sites"), ("/devices", "#devices")):
+        guidance(path, "empty-" + path[1:])
+        page.goto(origin + path)
+        expect(page.locator(container)).to_contain_text("No " if language == "en" else "未找到")
+
+    # The compatibility API creates only this fixture's credentialless device.
+    # Onboarding then uses the unmodified JSON produced by the real Logger UI.
+    csrf = page.locator('meta[name="csrf-token"]').get_attribute("content")
+    assert page.request.post(
+        origin + P + "/devices",
+        headers={"X-CSRF-Token": csrf},
+        data={"device_id": summary["device_id"]},
+    ).ok
+    page.goto(origin + "/devices/" + summary["device_id"])
+    expect(page.locator("#credentials")).to_contain_text(
+        "No credential registered" if language == "en" else "尚未注册凭据"
+    )
+    expect(page.locator("#first-credential, input[name=token]")).to_have_count(0)
+    expect(page.locator("#registration-guidance")).to_contain_text(
+        "first credential" if language == "en" else "首个凭据"
+    )
+    page.get_by_role("link", name=labels[0], exact=True).click()
+    page.get_by_label(labels[1], exact=True).fill(raw)
+    page.get_by_role("button", name=labels[2], exact=True).click()
+    expect(page.locator("#preview")).to_contain_text(summary["device_id"])
+    assert page.locator("#summary").input_value() == ""
+    assert summary["token"] not in page.content()
+    page.get_by_role("button", name=labels[3], exact=True).click()
+    expect(page.get_by_role("link", name=labels[4], exact=True)).to_be_visible()
+    expect(page.get_by_role("link", name=labels[5], exact=True)).to_have_attribute(
+        "href", "/sites/" + summary["site_id"]
+    )
+    page.get_by_role("link", name=labels[4], exact=True).click()
+    expect(page.locator("#registration-guidance")).to_have_count(0)
+    expect(page.locator("#credentials article")).to_have_count(1)
+    expect(page.locator("#grants")).to_contain_text(summary["site_id"])
+    expect(page.locator("#add-grant input[name=site_id]")).to_be_visible()
+    for path, container, identity in (
+        ("/sites", "#sites", summary["site_id"]),
+        ("/devices", "#devices", summary["device_id"]),
+    ):
+        guidance(path, "populated-" + path[1:])
+        page.goto(origin + path)
+        expect(page.locator(container)).to_contain_text(identity)
+    guidance("/sites?q=no-such-synthetic-site", "search-empty-sites")
+    page.goto(origin + "/sites?q=no-such-synthetic-site")
+    expect(page.locator("#sites")).to_contain_text(
+        "No sites found" if language == "en" else "未找到站点"
+    )
+    expect(page.locator("input[name=value]")).to_have_value("no-such-synthetic-site")
+    # Devices has pagination, not a search input; its empty page retains guidance.
+    guidance("/devices?offset=20", "empty-page-devices")
