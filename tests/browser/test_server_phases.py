@@ -64,6 +64,73 @@ def seed_phases(analysis_data):
     return summary, single, full, gap
 
 
+@pytest.mark.parametrize("language", ["en", "zh"])
+@pytest.mark.parametrize("theme", ["dark", "light"])
+@pytest.mark.parametrize("width", [1440, 1024, 360])
+def test_phase_legend_compact_layout_and_shared_keyboard_toggle(
+    shell, analysis_data, tmp_path, language, theme, width
+):
+    page, origin, _ = shell
+    page.set_viewport_size({"width": width, "height": 1000})
+    login(page, origin)
+    summary, _, _, _ = seed_phases(analysis_data)
+    page.evaluate(
+        f"localStorage.setItem('watt-profile-language', '{language}'); "
+        f"localStorage.setItem('watt-profile-theme', '{theme}');"
+    )
+    page.reload()
+    page.goto(origin + f"/sites/{summary.site_id}?tab=phases")
+    legend = page.locator("fieldset.phase-legend")
+    expect(legend).to_be_visible()
+    controls = legend.get_by_role("checkbox")
+    expect(controls).to_have_count(3)
+    layout = legend.evaluate("""fieldset => {
+      const boxes = [...fieldset.querySelectorAll('input[type=checkbox]')];
+      const charts = [...document.querySelectorAll('.analysis-chart')];
+      const rects = boxes.map(box => box.getBoundingClientRect());
+      const legendRect = fieldset.getBoundingClientRect();
+      const chartRect = charts[0].getBoundingClientRect();
+      return {
+        sizes: boxes.map(box => {
+          const rect = box.getBoundingClientRect();
+          return [rect.width, rect.height];
+        }),
+        sameRow: rects.every(rect => Math.abs(rect.top - rects[0].top) < 3),
+        chartGap: chartRect.top - legendRect.bottom,
+        overflow: document.documentElement.scrollWidth > innerWidth,
+        viewport: innerWidth,
+      };
+    }""")
+    assert all(14 <= width <= 18 and 14 <= height <= 18 for width, height in layout["sizes"])
+    assert layout["sameRow"], layout
+    assert 0 <= layout["chartGap"] <= 48, layout
+    assert not layout["overflow"], layout
+
+    # Space and pointer interaction each redraw all three real chart canvases.
+    before = page.locator("canvas").evaluate_all("nodes => nodes.map(node => node.toDataURL())")
+    controls.nth(1).focus()
+    page.keyboard.press("Space")
+    page.wait_for_function(
+        "old => [...document.querySelectorAll('canvas')].every((node, index) => "
+        "node.toDataURL() !== old[index])",
+        arg=before,
+    )
+    expect(controls.nth(1)).not_to_be_checked()
+    before = page.locator("canvas").evaluate_all("nodes => nodes.map(node => node.toDataURL())")
+    controls.nth(1).click()
+    page.wait_for_function(
+        "old => [...document.querySelectorAll('canvas')].every((node, index) => "
+        "node.toDataURL() !== old[index])",
+        arg=before,
+    )
+    expect(controls.nth(1)).to_be_checked()
+
+    if width == 1440 and language == "en" and theme == "dark":
+        page.screenshot(path=str(tmp_path / "phase-legend-desktop.png"), full_page=True)
+    if width == 360 and language == "zh" and theme == "light":
+        page.screenshot(path=str(tmp_path / "phase-legend-mobile.png"), full_page=True)
+
+
 def test_phases_direct_url_direction_legend_numeric_raw_theme_language_and_refresh(
     shell, analysis_data
 ):
