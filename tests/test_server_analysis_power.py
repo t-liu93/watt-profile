@@ -6,9 +6,11 @@ from uuid import UUID
 
 import pytest
 import test_server_analysis
+from sqlalchemy import func, select
 
 from watt_profile.server.analysis import AnalysisRange, InvalidAnalysis
 from watt_profile.server.analysis_power import aggregate_curves, select_resolution
+from watt_profile.server.storage import schema as db
 
 power_data = test_server_analysis.analysis_data
 
@@ -189,3 +191,56 @@ def test_short_zoom_retains_gap_crossing_its_edge(power_data):
         result = read.power(zoom=interval(10, BASE + timedelta(seconds=50)))
     assert result.import_power.buckets[0].valid_count == 1
     assert result.import_power.buckets[0].has_gap
+
+
+def test_multi_metric_curves_match_independent_bucket_aggregates(power_data):
+    """Missing metrics, tied times and exact values retain independent aggregates."""
+    service, summary, _, add = power_data
+    metrics = (
+        "power_import_kw",
+        "power_export_kw",
+        "voltage_l1_v",
+        "current_l1_a",
+        "power_import_l2_kw",
+        "power_export_l3_kw",
+    )
+    offsets = (0, 1, 1, 9, 10, 19, 20, 59, 60, 69, 70)
+    values = [
+        {
+            metric: None if (i + j) % 4 == 0 else Decimal(f"123456789012345678901234567890.{i}{j}")
+            for j, metric in enumerate(metrics)
+        }
+        for i in range(len(offsets))
+    ]
+    # A real zero and an entirely unavailable metric must survive expansion.
+    values[0][metrics[0]] = Decimal(0)
+    for value in values:
+        value[metrics[-1]] = None
+    descriptor, _ = add(times=[BASE + timedelta(seconds=n) for n in offsets], metrics=values)
+    with localcontext() as context:
+        context.prec = 6
+        with service.read(summary.site_id, descriptor.session_id, interval(80)) as read:
+            for zoom in (None, interval(61, BASE + timedelta(seconds=9))):
+                _, _, curves = aggregate_curves(read, metrics, zoom=zoom)
+                for curve in curves:
+                    column = db.snapshots.c[curve.metric]
+                    for bucket in curve.buckets:
+                        expected = read.connection.execute(
+                            select(
+                                func.avg(column),
+                                func.min(column),
+                                func.max(column),
+                                func.count(column),
+                            ).where(
+                                *interval(
+                                    (bucket.received_before - bucket.received_from).total_seconds(),
+                                    bucket.received_from,
+                                ).predicates(summary.site_id, descriptor.session_id)
+                            )
+                        ).one()
+                        assert (
+                            bucket.mean,
+                            bucket.minimum,
+                            bucket.maximum,
+                            bucket.valid_count,
+                        ) == expected

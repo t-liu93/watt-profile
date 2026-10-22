@@ -98,6 +98,8 @@ def select_resolution(selected: AnalysisRange, *, max_buckets: int = MAX_BUCKETS
 
 # Identifiers below come exclusively from the fixed Metric allowlist, never inputs.
 # All raw readings, metric arithmetic, gap detection, and grouping stay in SQL.
+# Aggregate columns before expanding metrics: only bounded bucket rows become
+# metric rows, rather than multiplying every reading by the number of metrics.
 _CURVE_SQL = """
 WITH global_observed AS MATERIALIZED (
     SELECT received_at, device_id, record_id, {columns},
@@ -137,19 +139,17 @@ WITH global_observed AS MATERIALIZED (
             floor(extract(epoch FROM (g.end_at-b.start_at)) / :seconds)::int)
     ) AS i WHERE g.start_at < b.end_at AND g.end_at >= b.start_at GROUP BY i
 ), projected AS (
-    SELECT floor(extract(epoch FROM (o.received_at-b.start_at)) / :seconds)::int AS i, v.*
+    SELECT floor(extract(epoch FROM (o.received_at-b.start_at)) / :seconds)::int AS i,
+        {columns}
     FROM observed o CROSS JOIN bounds b
-    CROSS JOIN LATERAL (VALUES {values}) AS v(metric, value)
 ), grouped AS (
-    SELECT i, metric, avg(value) AS mean, min(value) AS minimum,
-        max(value) AS maximum, count(value) AS valid_count
-    FROM projected GROUP BY i, metric
+    SELECT i, {aggregates} FROM projected GROUP BY i
 )
-SELECT b.*, m.metric, g.mean, g.minimum, g.maximum,
-    coalesce(g.valid_count, 0) AS valid_count, coalesce(gap.has_gap, false) AS has_gap,
+SELECT b.*, m.metric, m.mean, m.minimum, m.maximum,
+    coalesce(m.valid_count, 0) AS valid_count, coalesce(gap.has_gap, false) AS has_gap,
     gap.i IS NOT NULL AS gap_break
-FROM buckets b CROSS JOIN (VALUES {names}) AS m(metric)
-LEFT JOIN grouped g ON g.i = b.i AND g.metric = m.metric
+FROM buckets b LEFT JOIN grouped g ON g.i = b.i
+CROSS JOIN LATERAL (VALUES {values}) AS m(metric, mean, minimum, maximum, valid_count)
 LEFT JOIN gap_buckets gap ON gap.i = b.i
 ORDER BY m.metric, b.i
 """
@@ -176,8 +176,14 @@ def aggregate_curves(
             text(
                 _CURVE_SQL.format(
                     columns=", ".join(metrics),
-                    values=", ".join(f"('{m}', o.{m})" for m in metrics),
-                    names=", ".join(f"('{m}')" for m in metrics),
+                    aggregates=", ".join(
+                        f"avg({m}) AS {m}_mean, min({m}) AS {m}_min, "
+                        f"max({m}) AS {m}_max, count({m}) AS {m}_count"
+                        for m in metrics
+                    ),
+                    values=", ".join(
+                        f"('{m}', g.{m}_mean, g.{m}_min, g.{m}_max, g.{m}_count)" for m in metrics
+                    ),
                 )
             ),
             {

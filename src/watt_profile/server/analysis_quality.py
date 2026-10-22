@@ -162,54 +162,63 @@ def calculate_quality(read: "AnalysisRead", *, gaps=None, problems=None) -> Qual
           HAVING CAST(:received_before AS timestamptz)-max(received_at) > interval '30 seconds'
       ) SELECT * FROM g ORDER BY received_from,received_before,kind
     """)
-    gap_total = read.connection.scalar(text(f"SELECT count(*) FROM ({gaps_sql.text}) g"), params)
-    page_params = params | {"offset": gap_page.offset, "limit": gap_page.limit}
+    # Count and page the same gap calculation, retaining the total even when
+    # the requested page lies beyond the end. Only the bounded page leaves SQL.
     gap_rows = (
-        read.connection.execute(text(gaps_sql.text + " LIMIT :limit OFFSET :offset"), page_params)
+        read.connection.execute(
+            text(f"""
+        WITH gaps AS MATERIALIZED ({gaps_sql.text})
+        SELECT totals.total, page.* FROM (SELECT count(*) AS total FROM gaps) totals
+        LEFT JOIN LATERAL (
+            SELECT * FROM gaps ORDER BY received_from, received_before, kind
+            LIMIT :limit OFFSET :offset
+        ) page ON true
+        """),
+            params | {"offset": gap_page.offset, "limit": gap_page.limit},
+        )
         .mappings()
         .all()
     )
-    problem_total = read.connection.scalar(
-        text("""
-      SELECT count(*) FROM (SELECT device_id,record_id FROM snapshots s
-       CROSS JOIN LATERAL jsonb_array_elements(s.quality->'issues') issue
-       WHERE site_id=:site_id AND session_id=:session_id AND received_at >= :received_from
-       AND received_at < :received_before
-       AND issue->>'reason' <> 'redacted' GROUP BY device_id,record_id) q
-    """),
-        params,
-    )
+    gap_total = gap_rows[0]["total"]
+    # Expand persisted issues once, then share that projection between counts,
+    # summaries and the independently paged locators. Privacy-only issues never
+    # enter any of these three outputs.
     issue_rows = (
         read.connection.execute(
             text("""
-      SELECT received_at,device_id,record_id,
-        jsonb_agg(issue ORDER BY issue->>'code',issue->>'reason') AS issues
-      FROM snapshots s CROSS JOIN LATERAL jsonb_array_elements(s.quality->'issues') issue
-      WHERE site_id=:site_id AND session_id=:session_id AND received_at >= :received_from
-        AND received_at < :received_before AND issue->>'reason' <> 'redacted'
-      GROUP BY received_at,device_id,record_id ORDER BY received_at,device_id,record_id
-      LIMIT :limit OFFSET :offset
-    """),
+        WITH issues AS MATERIALIZED (
+            SELECT received_at, device_id, record_id, issue
+            FROM snapshots s
+            CROSS JOIN LATERAL jsonb_array_elements(s.quality->'issues') issue
+            WHERE site_id=:site_id AND session_id=:session_id
+                AND received_at >= :received_from AND received_at < :received_before
+                AND issue->>'reason' <> 'redacted'
+        ), problems AS MATERIALIZED (
+            SELECT received_at, device_id, record_id,
+                jsonb_agg(issue ORDER BY issue->>'code', issue->>'reason') AS issues
+            FROM issues GROUP BY received_at, device_id, record_id
+        ), summaries AS (
+            SELECT issue->>'reason' AS reason, count(*) AS count
+            FROM issues GROUP BY issue->>'reason'
+        )
+        SELECT totals.total, summary.summaries, page.*
+        FROM (SELECT count(*) AS total FROM problems) totals
+        CROSS JOIN (
+            SELECT coalesce(jsonb_agg(jsonb_build_object('reason', reason, 'count', count)
+                ORDER BY reason), '[]'::jsonb) AS summaries FROM summaries
+        ) summary
+        LEFT JOIN LATERAL (
+            SELECT * FROM problems ORDER BY received_at, device_id, record_id
+            LIMIT :limit OFFSET :offset
+        ) page ON true
+        """),
             params | {"limit": problem_page.limit, "offset": problem_page.offset},
         )
         .mappings()
         .all()
     )
-    issue_summaries = (
-        read.connection.execute(
-            text("""
-      SELECT issue->>'reason' AS reason, count(*) AS count
-      FROM snapshots s CROSS JOIN LATERAL jsonb_array_elements(s.quality->'issues') issue
-      WHERE site_id=:site_id AND session_id=:session_id AND received_at >= :received_from
-        AND received_at < :received_before AND issue->>'reason' <> 'redacted'
-      GROUP BY issue->>'reason'
-      ORDER BY issue->>'reason'
-    """),
-            params,
-        )
-        .mappings()
-        .all()
-    )
+    problem_total = issue_rows[0]["total"]
+    issue_summaries = issue_rows[0]["summaries"]
     return QualityResult(
         context=c,
         expected_count=expected,
@@ -224,11 +233,19 @@ def calculate_quality(read: "AnalysisRead", *, gaps=None, problems=None) -> Qual
         export_endpoint_missing_count=summary["export_missing"],
         redacted_field_count=summary["redacted"],
         issues=tuple(IssueSummary(**row) for row in issue_summaries),
-        gaps=tuple(Gap(**row) for row in gap_rows),
+        gaps=tuple(
+            Gap(**{name: row[name] for name in Gap.model_fields})
+            for row in gap_rows
+            if row["kind"] is not None
+        ),
         gap_total=gap_total,
         gap_offset=gap_page.offset,
         gap_limit=gap_page.limit,
-        problems=tuple(ProblemRecord(**row) for row in issue_rows),
+        problems=tuple(
+            ProblemRecord(**{name: row[name] for name in ProblemRecord.model_fields})
+            for row in issue_rows
+            if row["record_id"] is not None
+        ),
         problem_total=problem_total,
         problem_offset=problem_page.offset,
         problem_limit=problem_page.limit,

@@ -319,54 +319,71 @@ class EnergyResult(DomainModel):
 
 
 # Only the small grouped result (at most 31 dates per direction) leaves PostgreSQL.
+# Shared observed-gap windows and columnwise endpoint counts precede direction
+# expansion. Only valid endpoints need the direction-specific previous windows.
+# Convert each reading to local wall time once for interval date attribution.
 # NUMERIC arithmetic stays in PostgreSQL: Python's default Decimal context would
 # round accepted counters with more than 28 significant digits.
 _ENERGY_SQL = text("""
-WITH projected AS (
-    SELECT s.received_at, s.device_id, s.record_id, v.*
-    FROM snapshots s
-    CROSS JOIN LATERAL (VALUES
-        ('import', s.energy_import_t1_kwh, s.energy_import_t2_kwh),
-        ('export', s.energy_export_t1_kwh, s.energy_export_t2_kwh)
-    ) AS v(direction, t1, t2)
-    WHERE s.site_id = :site_id AND s.session_id = :session_id
-        AND s.received_at >= :received_from AND s.received_at < :received_before
+WITH readings AS MATERIALIZED (
+    SELECT received_at, device_id, record_id,
+        received_at AT TIME ZONE 'Europe/Amsterdam' AS local_at,
+        energy_import_t1_kwh, energy_import_t2_kwh,
+        energy_export_t1_kwh, energy_export_t2_kwh
+    FROM snapshots
+    WHERE site_id = :site_id AND session_id = :session_id
+        AND received_at >= :received_from AND received_at < :received_before
 ), observed AS (
     SELECT *, lag(received_at) OVER (
-        PARTITION BY direction ORDER BY received_at, device_id, record_id
-    ) AS previous_reading_at
-    FROM projected
+        ORDER BY received_at, device_id, record_id
+    ) AS previous_reading_at FROM readings
 ), gap_marked AS (
     SELECT *, sum(CASE WHEN received_at - previous_reading_at > interval '30 seconds'
         THEN 1 ELSE 0 END) OVER (
-        PARTITION BY direction ORDER BY received_at, device_id, record_id
-        ROWS UNBOUNDED PRECEDING
-    ) AS gap_index
-    FROM observed
+        ORDER BY received_at, device_id, record_id ROWS UNBOUNDED PRECEDING
+    ) AS gap_index FROM observed
 ), directions AS (
-    SELECT v.direction,
-        count(*) FILTER (WHERE p.t1 IS NOT NULL AND p.t2 IS NOT NULL) AS endpoints,
-        count(p.direction) FILTER (WHERE p.t1 IS NULL OR p.t2 IS NULL) AS missing,
-        min(p.received_at) FILTER (WHERE p.t1 IS NOT NULL AND p.t2 IS NOT NULL) AS first_at,
-        max(p.received_at) FILTER (WHERE p.t1 IS NOT NULL AND p.t2 IS NOT NULL) AS last_at
-    FROM (VALUES ('import'), ('export')) AS v(direction)
-    LEFT JOIN projected p USING (direction)
-    GROUP BY v.direction
+    SELECT v.* FROM (
+        SELECT count(*) FILTER (WHERE energy_import_t1_kwh IS NOT NULL
+                AND energy_import_t2_kwh IS NOT NULL) AS import_endpoints,
+            count(*) FILTER (WHERE energy_import_t1_kwh IS NULL
+                OR energy_import_t2_kwh IS NULL) AS import_missing,
+            min(received_at) FILTER (WHERE energy_import_t1_kwh IS NOT NULL
+                AND energy_import_t2_kwh IS NOT NULL) AS import_first_at,
+            max(received_at) FILTER (WHERE energy_import_t1_kwh IS NOT NULL
+                AND energy_import_t2_kwh IS NOT NULL) AS import_last_at,
+            count(*) FILTER (WHERE energy_export_t1_kwh IS NOT NULL
+                AND energy_export_t2_kwh IS NOT NULL) AS export_endpoints,
+            count(*) FILTER (WHERE energy_export_t1_kwh IS NULL
+                OR energy_export_t2_kwh IS NULL) AS export_missing,
+            min(received_at) FILTER (WHERE energy_export_t1_kwh IS NOT NULL
+                AND energy_export_t2_kwh IS NOT NULL) AS export_first_at,
+            max(received_at) FILTER (WHERE energy_export_t1_kwh IS NOT NULL
+                AND energy_export_t2_kwh IS NOT NULL) AS export_last_at
+        FROM readings
+    ) d CROSS JOIN LATERAL (VALUES
+        ('import', d.import_endpoints, d.import_missing, d.import_first_at, d.import_last_at),
+        ('export', d.export_endpoints, d.export_missing, d.export_first_at, d.export_last_at)
+    ) AS v(direction, endpoints, missing, first_at, last_at)
 ), previous AS (
-    SELECT *, lag(t1) OVER w AS previous_t1, lag(t2) OVER w AS previous_t2,
+    SELECT received_at, local_at, device_id, record_id, gap_index, v.*,
+        lag(t1) OVER w AS previous_t1, lag(t2) OVER w AS previous_t2,
         lag(received_at) OVER w AS previous_at,
+        lag(local_at) OVER w AS previous_local_at,
         lag(gap_index) OVER w AS previous_gap_index
-    FROM gap_marked WHERE t1 IS NOT NULL AND t2 IS NOT NULL
+    FROM gap_marked CROSS JOIN LATERAL (VALUES
+        ('import', energy_import_t1_kwh, energy_import_t2_kwh),
+        ('export', energy_export_t1_kwh, energy_export_t2_kwh)
+    ) AS v(direction, t1, t2)
+    WHERE t1 IS NOT NULL AND t2 IS NOT NULL
     WINDOW w AS (PARTITION BY direction ORDER BY received_at, device_id, record_id)
 ), intervals AS (
     SELECT *, t1 < previous_t1 OR t2 < previous_t2 AS reset,
         (t1 - previous_t1) + (t2 - previous_t2) AS delta,
         gap_index > previous_gap_index AS gap,
-        CASE WHEN (previous_at AT TIME ZONE 'Europe/Amsterdam')::date =
-                (received_at AT TIME ZONE 'Europe/Amsterdam')::date
-            OR (received_at AT TIME ZONE 'Europe/Amsterdam') =
-                ((previous_at AT TIME ZONE 'Europe/Amsterdam')::date + 1)::timestamp
-            THEN (previous_at AT TIME ZONE 'Europe/Amsterdam')::date
+        CASE WHEN previous_local_at::date = local_at::date
+            OR local_at = (previous_local_at::date + 1)::timestamp
+            THEN previous_local_at::date
         END AS day
     FROM previous WHERE previous_at IS NOT NULL
 ), grouped AS (

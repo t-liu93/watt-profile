@@ -2,6 +2,7 @@
 
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, localcontext
+from random import Random
 from uuid import UUID, uuid4
 
 import pytest
@@ -478,3 +479,83 @@ def test_energy_only_regressions_are_unavailable(analysis_data):
     assert result.import_energy.valid_endpoint_count == 2
     assert result.import_energy.reset_count == 1
     assert "no_valid_intervals" in result.import_energy.incompleteness_reasons
+
+
+def test_energy_daily_and_period_match_interval_reference(analysis_data):
+    """Independent interval accounting includes reset-only and unallocated groups."""
+    from watt_profile.server.analysis import AMSTERDAM
+
+    service, summary, _, add = analysis_data
+    rng = Random(50801)
+    base = datetime(2026, 10, 24, 21, tzinfo=UTC)
+    for _ in range(12):
+        offsets = sorted(rng.choices(range(3 * 8640), k=45))
+        times = [base + timedelta(seconds=10 * n) for n in offsets]
+        metrics = [
+            counters(*(None if rng.randrange(5) == 0 else str(rng.randrange(20)) for _ in range(4)))
+            for _ in times
+        ]
+        descriptor, records = add(times=times, metrics=metrics)
+        before = times[-1] + timedelta(seconds=1)
+        result = energy_for(service, summary, descriptor, base, before)
+        ordered = sorted(records, key=lambda r: (r.received_at, r.device_id, r.record_id))
+        for direction in ("import", "export"):
+            actual = getattr(result, direction + "_energy")
+            previous = None
+            observed = None
+            gap_index = 0
+            totals, daily = [], {}
+            resets = gaps = endpoints = 0
+            unallocated = Decimal(0)
+            for record in ordered:
+                at = record.received_at
+                if observed is not None and at - observed > timedelta(seconds=30):
+                    gap_index += 1
+                observed = at
+                t1, t2 = (
+                    getattr(record.metrics, f"energy_{direction}_{tariff}_kwh")
+                    for tariff in ("t1", "t2")
+                )
+                if t1 is None or t2 is None:
+                    continue
+                endpoints += 1
+                if previous is not None:
+                    left, p1, p2, previous_gap = previous
+                    if t1 < p1 or t2 < p2:
+                        resets += 1
+                    else:
+                        delta = (t1 - p1) + (t2 - p2)
+                        totals.append(delta)
+                        gaps += gap_index > previous_gap
+                        local_left = left.astimezone(AMSTERDAM)
+                        local_right = at.astimezone(AMSTERDAM)
+                        day = local_left.date()
+                        midnight = datetime.combine(day + timedelta(days=1), datetime.min.time())
+                        if (
+                            day == local_right.date()
+                            or local_right.replace(tzinfo=None) == midnight
+                        ):
+                            group = daily.setdefault(day, [Decimal(0), 0, left, at])
+                            group[0] += delta
+                            group[1] += 1
+                            group[3] = at
+                        else:
+                            unallocated += delta
+                previous = at, t1, t2, gap_index
+            assert actual.energy_kwh == (sum(totals) if totals else None)
+            assert actual.cross_day_unallocated_kwh == (unallocated if totals else None)
+            assert actual.valid_endpoint_count == endpoints
+            assert actual.missing_endpoint_count == len(records) - endpoints
+            assert actual.valid_interval_count == len(totals)
+            assert actual.reset_count == resets
+            assert actual.bridged_gap_count == gaps
+            assert [
+                (
+                    row.date,
+                    row.energy_kwh,
+                    row.valid_interval_count,
+                    row.first_endpoint_received_at,
+                    row.last_endpoint_received_at,
+                )
+                for row in actual.daily
+            ] == [(day, *values) for day, values in sorted(daily.items())]

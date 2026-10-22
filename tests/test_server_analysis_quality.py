@@ -137,3 +137,31 @@ def test_quality_excess_and_single_phase_counters(analysis_data):
     metrics = {item.metric: item for item in result.metrics}
     assert metrics["voltage_l2_v"].missing_count == 3
     assert result.import_endpoint_valid_count == 0 and result.import_endpoint_missing_count == 3
+
+
+def test_quality_shared_diagnostics_keep_totals_and_summaries_beyond_pages(analysis_data):
+    service, summary, _, add = analysis_data
+    start = datetime(2026, 3, 1, tzinfo=UTC)
+    session, records = add(times=(start, start + timedelta(seconds=60)))
+    issues = (
+        FieldIssue(code=None, reason="redacted"),
+        FieldIssue(code="1-0:1.8.0", reason="missing"),
+        FieldIssue(code="1-0:2.8.0", reason="missing"),
+    )
+    revised = records[1].model_copy(update={"quality": Quality(frame_length=1, issues=issues)})
+    with service.engine.begin() as connection:
+        connection.execute(
+            update(db.snapshots)
+            .where(db.snapshots.c.record_id == revised.record_id)
+            .values(**snapshot_values(revised, start))
+        )
+    with service.read(summary.site_id, session.session_id, _range(start, 100)) as read:
+        first = read.quality(gaps=PageOptions(limit=1), problems=PageOptions(limit=1))
+        beyond = read.quality(gaps=PageOptions(offset=100), problems=PageOptions(offset=100))
+    assert first.gap_total == beyond.gap_total == 2
+    assert first.problem_total == beyond.problem_total == 1
+    assert beyond.gaps == beyond.problems == ()
+    assert [(item.reason, item.count) for item in first.issues] == [("missing", 2)]
+    assert beyond.issues == first.issues
+    assert first.problems[0].record_id == revised.record_id
+    assert first.problems[0].issues == tuple(issue.model_dump() for issue in issues[1:])
