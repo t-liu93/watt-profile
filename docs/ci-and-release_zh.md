@@ -88,4 +88,4 @@ docker build --build-arg WATT_FRONTEND_DIGEST -f deploy/server/Dockerfile -t wat
 
 检查产物的 producer 固定 Node 24.22.0／npm 11.16.0 和两份前端锁，安装／准备／校验组件，运行前端检查并只构建一次。摘要随上传的产物交付。consumer 验证该可信摘要及文件／锁哈希，再将相同字节暂存进 Python 包及原生 Server 镜像；各架构不单独重建前端。发布矩阵仍在原生 AMD64、ARM64 上覆盖 Logger 和 Server；Server smoke 在无 Node、无网络条件下验证打包前端。
 
-M5 本地完整 CI、合成 Compose、四周分析性能及两类 AMD64 离线镜像 smoke 已通过。M5 云端 workflow／原生 ARM64 仍未运行：本轮本地实现没有 push／tag／发布授权。上文 M4 历史发布结果保持独立。精确测量及待完成的所有者走查／组件冻结见 [M5 验收记录](milestone/m5_zh.md#验收记录)；自动已知 schema 迁移及所有者备份／恢复边界见 [Server 升级说明](../README_zh.md#m5-分析工作台与升级)。
+M5 本地完整 CI、合成 Compose、四周分析性能及两类 AMD64 离线镜像 smoke 已通过。所有者于 2026-10-22 验收 M5、冻结已审查候选，并授权推送分支、合并 main，在远端 CI 通过后发布正式 `0.1.0`。任何 CI 失败均停止并报告。原生 AMD64／ARM64 的 Logger 与 Server smoke 仍是发布 workflow 的必需门槛；待执行不能标为通过。上文 M4 历史发布结果保持独立。精确测量、所有者验收及证据限制见 [M5 验收记录](milestone/m5_zh.md#所有者最终验收与发版交接2026-10-22)；自动已知 schema 迁移及所有者备份／恢复边界见 [Server 升级说明](../README_zh.md#m5-分析工作台与升级)。

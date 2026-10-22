@@ -2,7 +2,7 @@
 
 > **English — source of truth** · [中文](post-mvp-roadmap_zh.md)
 
-Status, 2026-10-18: **The MVP is accepted and complete; M5 implementation and local automated verification are complete; owner walkthrough/component freeze and M5 acceptance remain pending.** This high-level direction and the [M5 design and atomic task cards](milestone/m5.md) are agreed. Verified task results are maintained in M5; owner walkthrough and milestone acceptance remain pending.
+Status, 2026-10-22: **M1–M5 are accepted by the owner; the M5 analysis workspace is complete and its reviewed frontend candidate is frozen.** The [M5 acceptance record](milestone/m5.md#final-owner-acceptance-and-release-handoff-2026-10-22) distinguishes owner confirmation from automated evidence and accepted manual omissions. M6 reports remain the next planned milestone; implementation has not started. Stable `0.1.0` publication is authorized only after remote CI passes; release checks remain separately recorded.
 
 This is the ongoing roadmap for development after the MVP. It records product direction, stage goals, priorities, dependencies, and changes to scope. Detailed designs, interface contracts, atomic tasks, and acceptance records remain in each milestone's English document and Chinese mirror under `docs/milestone/`.
 
@@ -52,7 +52,7 @@ M5 retains the existing Logger upload contract.
 
 An internal user can open a site, inspect several weeks of data, identify major import/export patterns and gaps, examine phase metrics, and verify results against raw readings. Existing administration and export workflows remain usable.
 
-Verify statistical correctness, query and chart responsiveness with four weeks of synthetic data, both interface languages, container delivery, and regression of the existing upload workflow. The [M5 design](milestone/m5.md) records the exact checks, measured results and pending owner acceptance.
+Verify statistical correctness, query and chart responsiveness with four weeks of synthetic data, both interface languages, container delivery, and regression of the existing upload workflow. The [M5 design](milestone/m5.md) records the exact checks, measured results and final owner acceptance.
 
 **Excluded from M5:** AI reports, PDF export, battery/PV sizing recommendations, customer accounts, and remote device management.
 
@@ -102,4 +102,4 @@ Host networking, Wi-Fi, DHCP, VPN, certificates, and reverse-proxy management re
 - The **architecture document** maintains system boundaries and cross-stage technical principles, linking to both roadmaps.
 - **Milestone documents** hold stage-specific designs, contracts, atomic tasks, and acceptance records, with one English document and Chinese mirror per milestone.
 
-Implement M5 using its [detailed design and task cards](milestone/m5.md), recording actual checks and acceptance there. Refine M6 and other extensions before starting them; this roadmap does not commit to delivery dates or detailed implementations. Maintain semantically equivalent English and Chinese documents, with English authoritative.
+M5 is complete; its [design and task cards](milestone/m5.md) retain implementation and acceptance evidence. Refine M6 and other extensions before starting them; this roadmap does not commit to delivery dates or detailed implementations. Maintain semantically equivalent English and Chinese documents, with English authoritative.

@@ -118,3 +118,5 @@ M4 closes only when its required checks pass. Deliver exact startup, configurati
 This document retains the original M1–M4 scope, plans, and closure information. Maintain all ongoing Post-MVP direction, priorities, and high-level scope changes in the [Post-MVP roadmap](post-mvp-roadmap.md), starting with M5 Server analysis and then M6 reports. Device, design-assistance, and operational extensions are scheduled there according to actual need. Detailed milestone designs, contracts, atomic tasks, and acceptance records remain under `docs/milestone/`.
 
 Default MVP page language is English. Tracked project documents have equivalent English and Chinese versions, with English authoritative. Keep the paired architecture, roadmap, future task cards, and operation instructions aligned. Record future completion evidence in the relevant task/progress documents rather than treating planned work here as implemented.
+
+M5 was subsequently accepted on 2026-10-22; see its [final acceptance](milestone/m5.md#final-owner-acceptance-and-release-handoff-2026-10-22). This leaves M1–M4 history unchanged; M6 reports are planned in the Post-MVP roadmap.
